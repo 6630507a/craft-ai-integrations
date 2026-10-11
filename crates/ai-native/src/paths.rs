@@ -1,0 +1,66 @@
+//! Where the AI files live on disk. This is the per-OS location the launcher writes and every app
+//! reads (task l3, still a proposal until it is settled with the launcher owner).
+//!
+//! | OS | Directory |
+//! |---|---|
+//! | Windows | `%LOCALAPPDATA%\ArtCraft\ai` |
+//! | macOS | `~/Library/Application Support/ArtCraft/ai` |
+//! | Linux | `$XDG_CONFIG_HOME/ArtCraft/ai` (default `~/.config/ArtCraft/ai`) |
+//!
+//! Local, not roaming, on Windows: the connections list should not follow a user to another
+//! machine where the keychain entries it points at do not exist.
+//!
+//! `CRAFT_AI_DIR` overrides the directory (headless runs, tests, portable installs).
+
+use std::path::PathBuf;
+
+/// Environment variable that replaces the default directory.
+pub const DIR_ENV: &str = "CRAFT_AI_DIR";
+/// The launcher's shared store, a [`craft_ai_model::StoreFile`] as JSON.
+pub const STORE_FILE: &str = "connections.json";
+/// The passphrase-encrypted secret file, used when no keychain is available.
+pub const SECRETS_FILE: &str = "secrets.enc.json";
+
+/// The directory holding the AI files, or `None` if the OS reports no config directory.
+pub fn ai_dir() -> Option<PathBuf> {
+    pick_dir(
+        std::env::var_os(DIR_ENV).map(PathBuf::from),
+        dirs::config_local_dir(),
+    )
+}
+
+fn pick_dir(over: Option<PathBuf>, base: Option<PathBuf>) -> Option<PathBuf> {
+    match over {
+        Some(p) if !p.as_os_str().is_empty() => Some(p),
+        _ => base.map(|b| b.join("ArtCraft").join("ai")),
+    }
+}
+
+/// Full path of the shared store file.
+pub fn store_path() -> Option<PathBuf> {
+    ai_dir().map(|d| d.join(STORE_FILE))
+}
+
+/// Full path of the encrypted secret file.
+pub fn secrets_path() -> Option<PathBuf> {
+    ai_dir().map(|d| d.join(SECRETS_FILE))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn override_wins_and_empty_override_is_ignored() {
+        let base = Some(PathBuf::from("/cfg"));
+        assert_eq!(
+            pick_dir(Some(PathBuf::from("/x")), base.clone()),
+            Some(PathBuf::from("/x"))
+        );
+        assert_eq!(
+            pick_dir(Some(PathBuf::new()), base),
+            Some(PathBuf::from("/cfg").join("ArtCraft").join("ai"))
+        );
+        assert_eq!(pick_dir(None, None), None);
+    }
+}

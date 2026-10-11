@@ -1,0 +1,37 @@
+//! Shared egui widgets for the Craft AI layer.
+//!
+//! Three widgets that every egui Craft app mounts the same way, so the AI experience is identical
+//! across the suite:
+//!
+//! | Widget | Task | Reports |
+//! |---|---|---|
+//! | [`ai_status`] | u1 | open the launcher, pick a model, use the default |
+//! | [`consent_prompt`] | u2 | allow or don't send |
+//! | [`job_progress`] | u3 | cancel |
+//! | [`ConnectionPanel`] | u1 (s0g) | saved, closed |
+//!
+//! They draw and report; the app acts, through [`AiClient`](craft_ai_client::AiClient). The wording
+//! is in [`text`] as plain functions, so an app with its own UI can reuse the same sentences. Colours
+//! come from the active egui theme, none are hard-coded.
+
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unimplemented,
+    clippy::todo,
+    clippy::unreachable
+)]
+
+mod consent;
+mod form;
+mod panel;
+mod progress;
+mod status;
+pub mod text;
+
+pub use consent::{ALLOW, ConsentChoice, DENY, consent_prompt};
+pub use form::{ConnectionFormState, FormEvent, TestLine, connection_form, words};
+pub use panel::{ConnectionPanel, PanelEvent};
+pub use progress::{CANCEL, ProgressAction, job_progress};
+pub use status::{ADD_CONNECTION, OPEN_LAUNCHER, StatusAction, StatusView, USE_DEFAULT, ai_status};
