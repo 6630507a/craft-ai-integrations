@@ -20,7 +20,7 @@
 use std::time::Duration;
 
 use craft_ai_client::{ConnectionManager, SaveError, TestRunner, TestTarget};
-use craft_ai_model::{ConnectionId, DraftError, Field};
+use craft_ai_model::{ConnectionId, DraftError, ErrorKind, Field};
 use egui::Ui;
 
 use crate::form::{ConnectionFormState, FormEvent, TestLine, connection_form};
@@ -70,6 +70,12 @@ impl ConnectionPanel {
                         millis: u64::try_from(report.elapsed.as_millis()).unwrap_or(u64::MAX),
                     };
                     self.form.draft.models = report.models;
+                }
+                Err(e)
+                    if e.kind == ErrorKind::Unsupported
+                        && self.form.draft.provider == "vertex-express" =>
+                {
+                    self.form.test = TestLine::Unverified(e.message);
                 }
                 Err(e) => self.form.test = TestLine::Failed(e.message),
             }

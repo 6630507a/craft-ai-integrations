@@ -42,6 +42,7 @@ pub mod words {
                 Some(format!("Connected. Models found: {models} ({millis} ms)"))
             }
             super::TestLine::Failed(why) => Some(format!("Test failed: {why}")),
+            super::TestLine::Unverified(why) => Some(format!("Not verified: {why}")),
         }
     }
 }
@@ -52,6 +53,7 @@ pub enum TestLine {
     Idle,
     Running,
     Passed { models: usize, millis: u64 },
+    Unverified(String),
     Failed(String),
 }
 
@@ -79,6 +81,11 @@ impl ConnectionFormState {
         }
     }
 
+    fn switch_preset(&mut self, index: usize) {
+        // A pasted key belongs to one provider, never carry it across presets.
+        *self = Self::from_preset(index);
+    }
+
     /// A form for changing a saved connection. The key box starts empty.
     pub fn edit(connection: &Connection) -> Self {
         Self {
@@ -93,6 +100,20 @@ impl ConnectionFormState {
 impl Default for ConnectionFormState {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn switching_provider_discards_the_previous_api_key() {
+        let mut form = ConnectionFormState::new();
+        form.draft.key = "provider-a-secret".into();
+        let bfl = PRESETS.iter().position(|p| p.key == "bfl").unwrap();
+        form.switch_preset(bfl);
+        assert!(form.draft.key.is_empty());
+        assert_eq!(form.draft.provider, "bfl");
     }
 }
 
@@ -147,9 +168,7 @@ pub fn connection_form(
                 ui.label(RichText::new(note).small().weak());
             }
             if let Some(i) = picked {
-                let key = std::mem::take(&mut state.draft.key);
-                *state = ConnectionFormState::from_preset(i);
-                state.draft.key = key;
+                state.switch_preset(i);
             }
         }
 
@@ -204,7 +223,12 @@ pub fn connection_form(
         if moved {
             state.draft.models.clear();
         }
-        if edited && matches!(state.test, TestLine::Passed { .. } | TestLine::Failed(_)) {
+        if edited
+            && matches!(
+                state.test,
+                TestLine::Passed { .. } | TestLine::Unverified(_) | TestLine::Failed(_)
+            )
+        {
             state.test = TestLine::Idle;
         }
 

@@ -95,6 +95,7 @@ pub const WELL_KNOWN: &[&str] = &[
     "text.complete",
     "text.embed",
     "image.generate",
+    "image.detect",
     "image.edit",
     "image.inpaint",
     "image.outpaint",

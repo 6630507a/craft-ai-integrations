@@ -20,6 +20,8 @@ pub const DIR_ENV: &str = "CRAFT_AI_DIR";
 pub const STORE_FILE: &str = "connections.json";
 /// The passphrase-encrypted secret file, used when no keychain is available.
 pub const SECRETS_FILE: &str = "secrets.enc.json";
+/// The ComfyUI workflow library, one JSON file per imported workflow.
+pub const WORKFLOW_DIR: &str = "workflows";
 
 /// The directory holding the AI files, or `None` if the OS reports no config directory.
 pub fn ai_dir() -> Option<PathBuf> {
@@ -44,6 +46,12 @@ pub fn store_path() -> Option<PathBuf> {
 /// Full path of the encrypted secret file.
 pub fn secrets_path() -> Option<PathBuf> {
     ai_dir().map(|d| d.join(SECRETS_FILE))
+}
+
+/// Default directory for the local ComfyUI workflow library (one JSON file per workflow).
+/// `None` when the OS reports no config directory; callers fall back to asking the user.
+pub fn workflow_dir() -> Option<PathBuf> {
+    ai_dir().map(|d| d.join(WORKFLOW_DIR))
 }
 
 #[cfg(test)]

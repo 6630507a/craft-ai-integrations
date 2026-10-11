@@ -558,3 +558,80 @@ fn a_background_test_of_a_saved_connection_remembers_the_models() {
     wait_for(&mut runner).unwrap().unwrap();
     assert_eq!(r.manager.views().unwrap()[0].connection.models.len(), 2);
 }
+
+#[test]
+fn new_provider_presets_store_keys_separately_and_probe_where_safe() {
+    let r = rig();
+    let bfl_server = Server::start(|req| {
+        assert_eq!(req.path, "/v1/credits");
+        assert_eq!(req.header("x-key"), Some("bfl-test"));
+        Reply::Json(200, r#"{"credits":1}"#.into())
+    });
+    let ark_server = Server::start(|req| {
+        assert_eq!(
+            req.path,
+            "/v3/contents/generations/tasks?page_num=1&page_size=1"
+        );
+        assert_eq!(req.header("authorization"), Some("Bearer ark-test"));
+        Reply::Json(200, "{}".into())
+    });
+    let mut bfl = preset("bfl");
+    bfl.endpoint = bfl_server.url.clone();
+    bfl.key = "bfl-test".into();
+    let mut ark = preset("seedance");
+    ark.endpoint = ark_server.url.replace("/v1", "/v3");
+    ark.key = "ark-test".into();
+    r.manager.save(&bfl).unwrap();
+    r.manager.save(&ark).unwrap();
+    assert_eq!(
+        r.manager
+            .test_saved(&id("black-forest-labs"), true)
+            .unwrap()
+            .models
+            .len(),
+        2
+    );
+    assert_eq!(
+        r.manager
+            .test_saved(&id("seedance-volcengine-ark"), true)
+            .unwrap()
+            .models
+            .len(),
+        1
+    );
+    let text = file_text(&r);
+    assert!(!text.contains("bfl-test") && !text.contains("ark-test"));
+}
+
+#[test]
+fn vertex_express_key_is_saved_without_claiming_a_free_probe() {
+    let r = rig();
+    let mut d = preset("vertex-express");
+    d.key = "vertex-test".into();
+    let saved = r.manager.save(&d).unwrap();
+    let conn = &r.manager.views().unwrap()[0].connection;
+    assert_eq!(conn.models[0].id.as_str(), "gemini-2.5-flash-image");
+    assert!(conn.models[0].label.contains("unverified"));
+    assert_eq!(
+        r.manager.test_saved(&saved.id, false).unwrap_err().kind,
+        ErrorKind::Unsupported
+    );
+    assert!(!file_text(&r).contains("vertex-test"));
+}
+
+#[test]
+fn sam3_preset_checks_a_real_local_health_endpoint() {
+    let r = rig();
+    let s = Server::start(|req| {
+        assert_eq!(req.path, "/v1/health");
+        Reply::Json(200, r#"{"model":"sam3","ready":true}"#.into())
+    });
+    let mut d = preset("sam3");
+    d.endpoint = s.url;
+    r.manager.save(&d).unwrap();
+    let report = r.manager.test_saved(&id("sam-3-local"), true).unwrap();
+    assert_eq!(
+        report.models[0].capabilities[0].capability.as_str(),
+        "image.detect"
+    );
+}

@@ -12,8 +12,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use craft_ai_bfl::{BflConfig, BflProvider};
+use craft_ai_comfyui::{ComfyConfig, ComfyProvider, WorkflowLibrary};
 use craft_ai_model::{AiError, Connection, Provider, SecretString};
 use craft_ai_openai::{OpenAiConfig, OpenAiProvider};
+use craft_ai_sam3::{Sam3Config, Sam3Provider};
+use craft_ai_seedance::{SeedanceConfig, SeedanceProvider};
+use craft_ai_vertex::{VertexConfig, VertexProvider};
 
 /// Builds a provider for one connection.
 pub type BuildFn =
@@ -34,28 +39,116 @@ const OPENAI_FAMILY: &[&str] = &[
 #[derive(Clone)]
 pub struct ProviderFactory {
     builders: HashMap<String, Arc<BuildFn>>,
+    /// Where the ComfyUI builder reads workflow files; the shared default when `None`.
+    comfyui_library: Option<std::path::PathBuf>,
+    /// App-owned directory for durable ComfyUI outputs. Opt-in; no implicit shared output path.
+    comfyui_output_dir: Option<std::path::PathBuf>,
+    /// Passed to every adapter: short for probing, long for real jobs.
+    timeouts: Option<(Duration, Duration)>,
 }
 
 impl ProviderFactory {
-    /// Only what is built in: the OpenAI-compatible family.
+    /// Only what is built in, with the ComfyUI adapter reading the shared default workflow
+    /// library beside the connections store.
     pub fn standard() -> Self {
-        Self::openai_family(None)
+        Self::built(None, None)
     }
 
     /// Like [`standard`](Self::standard) but with short timeouts (5 s to connect, 20 s in all), for
     /// the "Test" button: a server that does not answer must not leave the screen waiting for the
     /// ten minutes a real image job is allowed.
     pub fn probing() -> Self {
-        Self::openai_family(Some((Duration::from_secs(5), Duration::from_secs(20))))
+        Self::built(
+            Some((Duration::from_secs(5), Duration::from_secs(20))),
+            None,
+        )
     }
 
-    fn openai_family(timeouts: Option<(Duration, Duration)>) -> Self {
+    /// [`standard`](Self::standard) pointed at a specific ComfyUI workflow library.
+    pub fn with_comfyui_library(dir: impl Into<std::path::PathBuf>) -> Self {
+        Self::built(None, Some(dir.into()))
+    }
+
+    fn built(
+        timeouts: Option<(Duration, Duration)>,
+        comfyui_library: Option<std::path::PathBuf>,
+    ) -> Self {
         let mut f = Self {
             builders: HashMap::new(),
+            comfyui_library,
+            comfyui_output_dir: None,
+            timeouts,
         };
         for name in OPENAI_FAMILY {
             f.register(name, move |c, s| build_openai(c, s, timeouts));
         }
+        f.register("bfl", move |c, s| {
+            let base = c
+                .endpoint
+                .as_deref()
+                .ok_or_else(|| AiError::invalid("BFL address is required"))?;
+            let key = s.ok_or_else(|| {
+                AiError::new(craft_ai_model::ErrorKind::Auth, "BFL API key is required")
+            })?;
+            let mut cfg = BflConfig::new(base, key);
+            if let Some((connect, request)) = timeouts {
+                cfg.connect_timeout = connect;
+                cfg.request_timeout = request;
+            }
+            Ok(Arc::new(BflProvider::new(cfg)?))
+        });
+        f.register("seedance", move |c, s| {
+            let base = c
+                .endpoint
+                .as_deref()
+                .ok_or_else(|| AiError::invalid("Ark address is required"))?;
+            let key = s.ok_or_else(|| {
+                AiError::new(craft_ai_model::ErrorKind::Auth, "Ark API key is required")
+            })?;
+            let mut cfg = SeedanceConfig::new(base, key);
+            if let Some((connect, request)) = timeouts {
+                cfg.connect_timeout = connect;
+                cfg.request_timeout = request;
+            }
+            Ok(Arc::new(SeedanceProvider::new(cfg)?))
+        });
+        f.register("vertex-express", move |c, s| {
+            let base = c
+                .endpoint
+                .as_deref()
+                .ok_or_else(|| AiError::invalid("Vertex address is required"))?;
+            let key = s.ok_or_else(|| {
+                AiError::new(
+                    craft_ai_model::ErrorKind::Auth,
+                    "Vertex express API key is required",
+                )
+            })?;
+            let mut cfg = VertexConfig::new(base, key);
+            if let Some((connect, request)) = timeouts {
+                cfg.connect_timeout = connect;
+                cfg.request_timeout = request;
+            }
+            Ok(Arc::new(VertexProvider::new(cfg)?))
+        });
+        f.register("sam3", move |c, _| {
+            let base = c
+                .endpoint
+                .as_deref()
+                .ok_or_else(|| AiError::invalid("SAM 3 bridge address is required"))?;
+            let mut cfg = Sam3Config::new(base);
+            if let Some((connect, request)) = timeouts {
+                cfg.connect_timeout = connect;
+                cfg.request_timeout = request;
+            }
+            Ok(Arc::new(Sam3Provider::new(cfg)?))
+        });
+        let comfyui_library = f.comfyui_library.clone();
+        let comfy_timeouts = f.timeouts;
+        f.register_comfyui(
+            comfyui_library,
+            f.comfyui_output_dir.clone(),
+            comfy_timeouts,
+        );
         f
     }
 
@@ -70,6 +163,67 @@ impl ProviderFactory {
     ) {
         self.builders
             .insert(name.to_ascii_lowercase(), Arc::new(build));
+    }
+
+    /// Points the ComfyUI adapter at a specific workflow library. Without this it reads the
+    /// shared default beside the connections store, so every app sees the same workflows.
+    pub fn set_comfyui_library(&mut self, dir: impl Into<std::path::PathBuf>) {
+        self.comfyui_library = Some(dir.into());
+        self.register_comfyui(
+            self.comfyui_library.clone(),
+            self.comfyui_output_dir.clone(),
+            self.timeouts,
+        );
+    }
+
+    /// Opt in to streamed, bounded local media files instead of inline output bytes.
+    /// The app owns the directory and must clean up assets it no longer uses.
+    pub fn with_comfyui_output_dir(mut self, dir: impl Into<std::path::PathBuf>) -> Self {
+        self.comfyui_output_dir = Some(dir.into());
+        self.register_comfyui(
+            self.comfyui_library.clone(),
+            self.comfyui_output_dir.clone(),
+            self.timeouts,
+        );
+        self
+    }
+
+    fn register_comfyui(
+        &mut self,
+        comfyui_library: Option<std::path::PathBuf>,
+        output_dir: Option<std::path::PathBuf>,
+        timeouts: Option<(Duration, Duration)>,
+    ) {
+        self.register("comfyui", move |c, _| {
+            let base = c
+                .endpoint
+                .as_deref()
+                .ok_or_else(|| AiError::invalid("ComfyUI address is required"))?;
+            let library = match &comfyui_library {
+                Some(dir) => WorkflowLibrary::at(dir)?,
+                None => WorkflowLibrary::at_default_location().ok_or_else(|| {
+                    AiError::invalid("could not locate the workflow library directory")
+                })?,
+            };
+            let workflows = library.load()?;
+            if workflows.is_empty() {
+                return Err(AiError::unsupported(
+                    "the workflow library is empty; import a workflow JSON first",
+                ));
+            }
+            let mut cfg = ComfyConfig::new(base);
+            if let Some(dir) = &output_dir {
+                cfg = cfg.with_output_dir(dir);
+            }
+            for w in workflows {
+                cfg = cfg.with_workflow(w);
+            }
+            if let Some((connect, request)) = timeouts {
+                cfg.connect_timeout = connect;
+                cfg.request_timeout = request;
+            }
+            Ok(Arc::new(ComfyProvider::new(cfg)?))
+        });
     }
 
     pub fn knows(&self, name: &str) -> bool {
@@ -148,9 +302,9 @@ mod tests {
     }
 
     #[test]
-    fn standard_knows_the_openai_family_only() {
+    fn standard_knows_the_openai_family_and_bfl() {
         let f = ProviderFactory::standard();
-        for n in ["openai", "OLLAMA", "lmstudio", "openrouter"] {
+        for n in ["openai", "OLLAMA", "lmstudio", "openrouter", "bfl"] {
             assert!(f.knows(n), "{n}");
         }
         assert!(!f.knows("fal"));

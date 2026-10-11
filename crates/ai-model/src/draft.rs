@@ -21,8 +21,9 @@ use std::fmt;
 use crate::connection::{Auth, Billing, Connection, Locality};
 use crate::endpoint::Endpoint;
 use crate::ids::{ConnectionId, SecretRef, validate_id};
-use crate::model::ModelInfo;
+use crate::model::{CapabilitySpec, InputRole, ModelInfo};
 use crate::secret::SecretString;
+use crate::{CapabilityId, ModelId};
 
 /// Longest label, in characters.
 pub const MAX_LABEL_CHARS: usize = 80;
@@ -68,6 +69,33 @@ pub const PRESETS: &[Preset] = &[
         note: "One key for many hosted models.",
     },
     Preset {
+        key: "bfl",
+        name: "Black Forest Labs",
+        provider: "bfl",
+        endpoint: "https://api.bfl.ai/v1",
+        billing: Billing::Metered,
+        needs_key: true,
+        note: "FLUX 3 image and video generation. Billed by Black Forest Labs.",
+    },
+    Preset {
+        key: "seedance",
+        name: "Seedance (Volcengine Ark)",
+        provider: "seedance",
+        endpoint: "https://ark.cn-beijing.volces.com/api/v3",
+        billing: Billing::Metered,
+        needs_key: true,
+        note: "Seedance 2.0 text-to-video with your Ark API key.",
+    },
+    Preset {
+        key: "vertex-express",
+        name: "Vertex AI (express mode)",
+        provider: "vertex-express",
+        endpoint: "https://aiplatform.googleapis.com/v1",
+        billing: Billing::Metered,
+        needs_key: true,
+        note: "Gemini image generation. API key only; full Vertex uses different credentials. Key cannot be tested without a paid request.",
+    },
+    Preset {
         key: "ollama",
         name: "Ollama",
         provider: "ollama",
@@ -95,6 +123,24 @@ pub const PRESETS: &[Preset] = &[
         note: "A llama.cpp server on this computer.",
     },
     Preset {
+        key: "comfyui",
+        name: "ComfyUI (local)",
+        provider: "comfyui",
+        endpoint: "http://127.0.0.1:8188",
+        billing: Billing::Free,
+        needs_key: false,
+        note: "Local workflows on this computer. Import workflow JSON files first; each becomes a model.",
+    },
+    Preset {
+        key: "sam3",
+        name: "SAM 3 (local)",
+        provider: "sam3",
+        endpoint: "http://127.0.0.1:8343/v1",
+        billing: Billing::Free,
+        needs_key: false,
+        note: "Local object detection. Requires the separate SAM 3 bridge and approved checkpoint.",
+    },
+    Preset {
         key: "custom",
         name: "Other (OpenAI compatible)",
         provider: "openai-compatible",
@@ -104,6 +150,27 @@ pub const PRESETS: &[Preset] = &[
         note: "Any server that speaks the OpenAI API.",
     },
 ];
+
+fn preset_models(preset: &Preset) -> Vec<ModelInfo> {
+    // Vertex express does not offer a known free key probe. Seed the documented model as
+    // unverified so it can be bound without pretending the Test button has reached Google.
+    if preset.key != "vertex-express" {
+        return Vec::new();
+    }
+    match (
+        ModelId::new("gemini-2.5-flash-image"),
+        CapabilityId::parse("image.generate"),
+    ) {
+        (Ok(id), Ok(cap)) => vec![
+            ModelInfo::new(id, "Gemini 2.5 Flash Image (unverified)").with(
+                CapabilitySpec::new(cap)
+                    .accepting(InputRole::Prompt, 1)
+                    .requiring(InputRole::Prompt),
+            ),
+        ],
+        _ => Vec::new(),
+    }
+}
 
 /// Which box a problem belongs to, so a form can mark it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -217,6 +284,7 @@ impl ConnectionDraft {
             endpoint: preset.endpoint.to_owned(),
             billing: preset.billing,
             uses_key: preset.needs_key,
+            models: preset_models(preset),
             ..Self::default()
         }
     }
