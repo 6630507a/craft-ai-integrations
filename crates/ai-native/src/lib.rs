@@ -9,6 +9,7 @@
 //! | [`secrets`] | the [`SecretStore`](secrets::SecretStore) trait and its stores: OS keychain, passphrase-encrypted file, environment, in-memory, and a layered chain |
 //! | [`shared`] | [`SharedStore`](shared::SharedStore): the launcher's versioned connections file, read by apps, updated under a lock with an atomic write |
 //! | [`ConsentFile`] | one app's consent ledger on disk; damage makes the app ask again |
+//! | [`HistoryFile`] | the shared request log (`jobs.jsonl`): locked appends, size-capped rotation, tolerant reads |
 //! | [`paths`] | where those files live on each OS |
 //!
 //! # Rules this crate keeps
@@ -31,8 +32,10 @@
 
 mod consent_file;
 mod fsutil;
+mod history_file;
 pub mod paths;
 pub mod secrets;
 pub mod shared;
 
 pub use consent_file::ConsentFile;
+pub use history_file::{DEFAULT_MAX_BYTES, HistoryFile, HistoryRead};

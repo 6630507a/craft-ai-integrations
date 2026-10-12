@@ -1,0 +1,22 @@
+[package]
+name = "craft-ai-media"
+description = "Durable local copies of hosted provider media for Craft AI. Native only."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+craft-ai-model.workspace = true
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+tempfile = "3"
+url = "2"
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile = "3"
+
+[lints]
+workspace = true

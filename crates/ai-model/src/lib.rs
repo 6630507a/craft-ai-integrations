@@ -13,6 +13,7 @@
 //! | [`ids`] | validated ids; `validated_string!` and `open_enum!` |
 //! | [`secret`] | [`SecretString`] (not printable, not serializable) and `redact` |
 //! | [`error`] | [`AiError`] with an actionable [`ErrorKind`] |
+//! | [`history`] | the request log: [`HistoryRecord`] lines and how they merge into [`HistoryEntry`] rows |
 //! | [`capability`] | [`Modality`], [`CapabilityId`] (`image.inpaint`), the open well-known list |
 //! | [`payload`] | [`Payload`] (text, inline, handle), limits, base64 |
 //! | [`model`] | [`ModelInfo`], [`CapabilitySpec`], [`InputRole`], [`Features`] |
@@ -42,6 +43,7 @@ pub mod consent;
 pub mod draft;
 pub mod endpoint;
 pub mod error;
+pub mod history;
 pub mod ids;
 pub mod job;
 pub mod mock;
@@ -58,6 +60,7 @@ pub use connection::{Auth, Billing, Connection, Locality};
 pub use consent::{ConsentLedger, Disclosure};
 pub use draft::{ConnectionDraft, DraftError, Field, KeyChange, PRESETS, Prepared, Preset};
 pub use error::{AiError, ErrorKind};
+pub use history::{EndRecord, HistoryEntry, HistoryLog, HistoryRecord, Outcome, StartRecord};
 pub use ids::{AppId, ConnectionId, JobId, ModelId, RoleId, SecretRef};
 pub use job::{CostEstimate, Event, JobSnapshot, JobState, Output, Usage};
 pub use model::{CapabilitySpec, Features, InputRole, ModelInfo};

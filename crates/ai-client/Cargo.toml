@@ -12,7 +12,10 @@ publish = false
 craft-ai-model.workspace = true
 craft-ai-native = { path = "../ai-native", package = "craft-ai-native" }
 craft-ai-openai = { path = "../ai-openai", package = "craft-ai-openai" }
+craft-ai-artcraft = { path = "../ai-artcraft", package = "craft-ai-artcraft" }
 craft-ai-bfl = { path = "../ai-bfl", package = "craft-ai-bfl" }
+craft-ai-features = { path = "../ai-features", package = "craft-ai-features" }
+craft-ai-media = { path = "../ai-media", package = "craft-ai-media" }
 craft-ai-comfyui = { path = "../ai-comfyui", package = "craft-ai-comfyui" }
 craft-ai-seedance = { path = "../ai-seedance", package = "craft-ai-seedance" }
 craft-ai-vertex = { path = "../ai-vertex", package = "craft-ai-vertex" }
@@ -21,6 +24,7 @@ craft-ai-sam3 = { path = "../ai-sam3", package = "craft-ai-sam3" }
 [dev-dependencies]
 serde_json.workspace = true
 tempfile = "3"
+url = "2"
 
 [lints]
 workspace = true

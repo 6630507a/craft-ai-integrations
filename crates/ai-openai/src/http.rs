@@ -10,7 +10,7 @@ use std::io::Read;
 use std::time::Duration;
 
 use craft_ai_model::secret::redact;
-use craft_ai_model::{AiError, ErrorKind, SecretString};
+use craft_ai_model::{AiError, ErrorKind, SecretString, Usage};
 use serde_json::Value;
 use ureq::Body;
 use ureq::http::Response;
@@ -46,6 +46,19 @@ impl Http {
             base,
             key,
         }
+    }
+
+    /// Keeps a cost the server reported only if the server is OpenRouter, whose `usage.cost` is
+    /// documented as credits in US dollars. Any other server's `cost` field could mean anything,
+    /// so it is dropped rather than shown as money.
+    pub fn trust_cost(&self, usage: Option<Usage>) -> Option<Usage> {
+        usage.map(|mut u| {
+            if !is_openrouter(&self.base) {
+                u.cost_micros = None;
+                u.currency = None;
+            }
+            u
+        })
     }
 
     fn url(&self, path: &str) -> String {
@@ -137,6 +150,13 @@ impl Http {
     }
 }
 
+/// Whether `base` is OpenRouter's own https address (the host must match exactly).
+pub(crate) fn is_openrouter(base: &str) -> bool {
+    base.strip_prefix("https://")
+        .and_then(|rest| rest.split(['/', '?', '#']).next())
+        .is_some_and(|host| host == "openrouter.ai")
+}
+
 pub(crate) fn scrub(mut e: AiError, key: Option<&SecretString>) -> AiError {
     if let Some(k) = key {
         e.message = redact(&e.message, &[k]);
@@ -201,6 +221,63 @@ pub(crate) fn map_status(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_openrouters_own_https_address_is_trusted_for_cost() {
+        for yes in [
+            "https://openrouter.ai/api/v1",
+            "https://openrouter.ai",
+            "https://openrouter.ai?x=1",
+        ] {
+            assert!(is_openrouter(yes), "{yes}");
+        }
+        for no in [
+            "http://openrouter.ai/api/v1",
+            "https://openrouter.ai.evil.com/v1",
+            "https://evil.com/openrouter.ai/v1",
+            "https://notopenrouter.ai/v1",
+            "https://user@openrouter.ai/v1",
+            "http://127.0.0.1:11434/v1",
+            "",
+        ] {
+            assert!(!is_openrouter(no), "{no}");
+        }
+    }
+
+    #[test]
+    fn a_cost_survives_for_openrouter_and_is_dropped_elsewhere() {
+        let usage = || {
+            Some(Usage {
+                input_units: Some(1),
+                output_units: None,
+                cost_micros: Some(5),
+                currency: Some("USD".into()),
+            })
+        };
+        let http = |base: &str| {
+            Http::new(
+                base.to_owned(),
+                None,
+                Duration::from_secs(1),
+                Duration::from_secs(1),
+            )
+        };
+        assert_eq!(
+            http("https://openrouter.ai/api/v1")
+                .trust_cost(usage())
+                .unwrap()
+                .cost_micros,
+            Some(5)
+        );
+        let other = http("http://localhost:1234/v1")
+            .trust_cost(usage())
+            .unwrap();
+        assert_eq!(
+            (other.cost_micros, other.currency, other.input_units),
+            (None, None, Some(1))
+        );
+        assert!(http("http://localhost:1234/v1").trust_cost(None).is_none());
+    }
 
     fn body(msg: &str, code: &str) -> String {
         format!(r#"{{"error":{{"message":"{msg}","code":"{code}"}}}}"#)

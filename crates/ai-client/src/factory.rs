@@ -12,9 +12,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use craft_ai_artcraft::{ArtCraftConfig, ArtCraftProvider};
 use craft_ai_bfl::{BflConfig, BflProvider};
 use craft_ai_comfyui::{ComfyConfig, ComfyProvider, WorkflowLibrary};
-use craft_ai_model::{AiError, Connection, Provider, SecretString};
+use craft_ai_media::{MediaStore, MediaStoreConfig, PersistingProvider};
+use craft_ai_model::{AiError, Connection, Locality, Provider, SecretString};
 use craft_ai_openai::{OpenAiConfig, OpenAiProvider};
 use craft_ai_sam3::{Sam3Config, Sam3Provider};
 use craft_ai_seedance::{SeedanceConfig, SeedanceProvider};
@@ -43,6 +45,8 @@ pub struct ProviderFactory {
     comfyui_library: Option<std::path::PathBuf>,
     /// App-owned directory for durable ComfyUI outputs. Opt-in; no implicit shared output path.
     comfyui_output_dir: Option<std::path::PathBuf>,
+    /// Opt-in: copy hosted result links into an app-owned directory as jobs finish.
+    media: Option<MediaStoreConfig>,
     /// Passed to every adapter: short for probing, long for real jobs.
     timeouts: Option<(Duration, Duration)>,
 }
@@ -77,11 +81,30 @@ impl ProviderFactory {
             builders: HashMap::new(),
             comfyui_library,
             comfyui_output_dir: None,
+            media: None,
             timeouts,
         };
         for name in OPENAI_FAMILY {
             f.register(name, move |c, s| build_openai(c, s, timeouts));
         }
+        f.register("artcraft-omni", move |c, s| {
+            let base = c
+                .endpoint
+                .as_deref()
+                .ok_or_else(|| AiError::invalid("ArtCraft Omni API address is required"))?;
+            let key = s.ok_or_else(|| {
+                AiError::new(
+                    craft_ai_model::ErrorKind::Auth,
+                    "ArtCraft Omni API key is required",
+                )
+            })?;
+            let mut cfg = ArtCraftConfig::new(base, key);
+            if let Some((connect, request)) = timeouts {
+                cfg.connect_timeout = connect;
+                cfg.request_timeout = request;
+            }
+            Ok(Arc::new(ArtCraftProvider::new(cfg)?))
+        });
         f.register("bfl", move |c, s| {
             let base = c
                 .endpoint
@@ -188,6 +211,19 @@ impl ProviderFactory {
         self
     }
 
+    /// Opt in to durable local copies of hosted results. Providers such as BFL, ArtCraft and
+    /// Seedance answer with a link that expires; with this set, every provider the factory builds
+    /// downloads such a link into `dir` as the job finishes and returns a `file:` handle. The
+    /// app owns the directory and its cleanup. A failed copy leaves the original link and adds a
+    /// notice rather than failing a job the provider already did. Errors if `dir` is not an
+    /// existing absolute folder.
+    pub fn with_media_dir(mut self, dir: impl Into<std::path::PathBuf>) -> Result<Self, AiError> {
+        let config = MediaStoreConfig::new(dir);
+        MediaStore::new(config.clone())?;
+        self.media = Some(config);
+        Ok(self)
+    }
+
     fn register_comfyui(
         &mut self,
         comfyui_library: Option<std::path::PathBuf>,
@@ -244,7 +280,17 @@ impl ProviderFactory {
                     connection.provider, connection.label
                 ))
             })?;
-        build(connection, secret)
+        let provider = build(connection, secret)?;
+        match &self.media {
+            Some(config) => {
+                let mut config = config.clone();
+                // A server the user runs on this computer may hand back a loopback link.
+                config.allow_loopback = connection.locality == Locality::Local;
+                let store = Arc::new(MediaStore::new(config)?);
+                Ok(Arc::new(PersistingProvider::new(provider, store)))
+            }
+            None => Ok(provider),
+        }
     }
 }
 
@@ -308,6 +354,13 @@ mod tests {
             assert!(f.knows(n), "{n}");
         }
         assert!(!f.knows("fal"));
+    }
+
+    #[test]
+    fn artcraft_api_key_has_a_real_adapter_but_account_access_does_not() {
+        let f = ProviderFactory::standard();
+        assert!(f.knows("artcraft-omni"));
+        assert!(!f.knows("artcraft-account"));
     }
 
     #[test]

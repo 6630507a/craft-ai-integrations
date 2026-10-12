@@ -9,6 +9,7 @@
 //! | [`consent_prompt`] | u2 | allow or don't send |
 //! | [`job_progress`] | u3 | cancel |
 //! | [`ConnectionPanel`] | u1 (s0g) | saved, closed |
+//! | [`history_view`] | issue #2 | refresh, clear, CSV export |
 //!
 //! They draw and report; the app acts, through [`AiClient`](craft_ai_client::AiClient). The wording
 //! is in [`text`] as plain functions, so an app with its own UI can reuse the same sentences. Colours
@@ -25,6 +26,8 @@
 
 mod consent;
 mod form;
+mod history;
+pub mod history_text;
 mod panel;
 mod progress;
 mod status;
@@ -32,6 +35,10 @@ pub mod text;
 
 pub use consent::{ALLOW, ConsentChoice, DENY, consent_prompt};
 pub use form::{ConnectionFormState, FormEvent, TestLine, connection_form, words};
+pub use history::{
+    CLEAR, CLEAR_NO, CLEAR_YES, EMPTY, EXPORT, HistoryAction, HistoryViewState, NOTHING_MATCHES,
+    REFRESH, Range, TAB_DAYS, TAB_JOBS, TAB_MONTHS, Tab, history_view,
+};
 pub use panel::{ConnectionPanel, PanelEvent};
 pub use progress::{CANCEL, ProgressAction, job_progress};
 pub use status::{ADD_CONNECTION, OPEN_LAUNCHER, StatusAction, StatusView, USE_DEFAULT, ai_status};

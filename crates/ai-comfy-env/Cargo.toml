@@ -1,0 +1,27 @@
+[package]
+name = "craft-ai-comfy-env"
+description = "Finds an existing ComfyUI install, inventories its models and node packs, and downloads missing model files safely. Native only."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+craft-ai-model.workspace = true
+craft-ai-features = { path = "../ai-features", package = "craft-ai-features" }
+craft-ai-media = { path = "../ai-media", package = "craft-ai-media" }
+serde_json.workspace = true
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+sha2 = "0.11"
+dirs = "7"
+url = "2"
+fs4 = { version = "1", default-features = false, features = ["sync"] }
+
+[dev-dependencies]
+tempfile = "3"
+sha2 = "0.11"
+
+[lints]
+workspace = true

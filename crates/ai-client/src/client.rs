@@ -24,13 +24,15 @@ use craft_ai_model::payload::Limits;
 use craft_ai_model::role::eligible;
 use craft_ai_model::{
     AiError, AppId, Billing, Binding, Connection, ConnectionId, ConsentLedger, Disclosure,
-    ErrorKind, JobId, JobSnapshot, JobState, Locality, ModelId, Provider, Request, Role, RoleId,
-    Usage,
+    ErrorKind, HistoryLog, JobId, JobSnapshot, JobState, Locality, ModelId, Provider, Request,
+    Role, RoleId, Usage,
 };
+use craft_ai_native::HistoryFile;
 use craft_ai_native::secrets::{EnvStore, KeychainStore, LayeredStore, SecretStore, secret_for};
 use craft_ai_native::shared::SharedStore;
 
 use crate::factory::ProviderFactory;
+use crate::history::{self, Recorder};
 
 /// Whether a role can run right now.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -66,10 +68,12 @@ pub struct Choice {
 /// A checked request waiting for consent. Holds no secret.
 #[derive(Clone, Debug)]
 pub struct Plan {
-    connection: Connection,
-    model: ModelId,
-    request: Request,
-    disclosure: Disclosure,
+    pub(crate) connection: Connection,
+    pub(crate) model: ModelId,
+    pub(crate) request: Request,
+    pub(crate) disclosure: Disclosure,
+    pub(crate) role_id: RoleId,
+    pub(crate) role_label: String,
 }
 
 impl Plan {
@@ -96,6 +100,7 @@ impl Plan {
 pub struct Job {
     provider: Arc<dyn Provider>,
     id: JobId,
+    recorder: Option<Arc<Recorder>>,
 }
 
 impl std::fmt::Debug for Job {
@@ -118,7 +123,11 @@ impl Job {
     }
 
     pub fn poll(&self) -> Result<JobSnapshot, AiError> {
-        self.provider.poll(&self.id)
+        let snap = self.provider.poll(&self.id)?;
+        if let Some(recorder) = &self.recorder {
+            recorder.observe(&snap.state, snap.usage.as_ref());
+        }
+        Ok(snap)
     }
 
     pub fn cancel(&self) -> Result<(), AiError> {
@@ -142,6 +151,9 @@ impl Job {
             }
             if Instant::now() >= deadline {
                 let _ = self.cancel();
+                if let Some(recorder) = &self.recorder {
+                    recorder.gave_up();
+                }
                 return Err(AiError::new(ErrorKind::Network, "the job took too long"));
             }
             std::thread::sleep(interval);
@@ -155,6 +167,8 @@ pub struct AiClient {
     shared: SharedStore,
     secrets: Arc<dyn SecretStore>,
     factory: ProviderFactory,
+    history: Option<Arc<HistoryFile>>,
+    keep_prompts: bool,
 }
 
 impl AiClient {
@@ -164,6 +178,8 @@ impl AiClient {
             shared,
             secrets,
             factory: ProviderFactory::standard(),
+            history: None,
+            keep_prompts: false,
         }
     }
 
@@ -176,7 +192,52 @@ impl AiClient {
             Box::new(EnvStore::new()),
             Box::new(KeychainStore::new()),
         ]);
-        Ok(Self::new(app, shared, Arc::new(secrets)))
+        let mut client = Self::new(app, shared, Arc::new(secrets));
+        client.history = HistoryFile::at_default_location().map(Arc::new);
+        Ok(client)
+    }
+
+    /// Logs every job to `file` (see [`history`](Self::history)). [`standard`](Self::standard)
+    /// already does this at the default location; `new` does not.
+    pub fn with_history(mut self, file: HistoryFile) -> Self {
+        self.history = Some(Arc::new(file));
+        self
+    }
+
+    /// Stops logging jobs.
+    pub fn without_history(mut self) -> Self {
+        self.history = None;
+        self
+    }
+
+    /// Whether the log keeps the prompt text (clipped). Off by default: the log then holds what
+    /// was sent and where, not what was said.
+    pub fn keep_prompts_in_history(mut self, keep: bool) -> Self {
+        self.keep_prompts = keep;
+        self
+    }
+
+    /// Every logged job from every app, newest first. Lines that cannot be read are counted in
+    /// [`HistoryLog::skipped`] rather than failing the read.
+    pub fn history(&self) -> Result<HistoryLog, AiError> {
+        let file = self.history_file()?;
+        let read = file
+            .read()
+            .map_err(|e| AiError::new(ErrorKind::Internal, format!("history unavailable: {e}")))?;
+        Ok(craft_ai_model::history::merge(read.records, read.skipped))
+    }
+
+    /// Deletes the log for every app.
+    pub fn clear_history(&self) -> Result<(), AiError> {
+        self.history_file()?
+            .clear()
+            .map_err(|e| AiError::new(ErrorKind::Internal, format!("history unavailable: {e}")))
+    }
+
+    fn history_file(&self) -> Result<&Arc<HistoryFile>, AiError> {
+        self.history.as_ref().ok_or_else(|| {
+            AiError::new(ErrorKind::Unsupported, "request history is turned off here")
+        })
     }
 
     /// Replaces the provider factory, to add adapters.
@@ -285,6 +346,8 @@ impl AiClient {
             model: resolved.model.id.clone(),
             request,
             disclosure,
+            role_id: role.id.clone(),
+            role_label: role.label.clone(),
         })
     }
 
@@ -300,10 +363,47 @@ impl AiClient {
                 ),
             ));
         }
+        let provider = match self.prepare(plan) {
+            Ok(provider) => provider,
+            Err(e) => {
+                self.log_refused(plan, None, &e);
+                return Err(e);
+            }
+        };
+        let estimate = provider.estimate(&plan.model, &plan.request).ok().flatten();
+        match provider.submit(&plan.model, &plan.request) {
+            Ok(id) => {
+                let recorder = self.history.as_ref().map(|file| {
+                    Arc::new(history::begin(file, plan, &id, estimate, self.keep_prompts))
+                });
+                Ok(Job {
+                    provider,
+                    id,
+                    recorder,
+                })
+            }
+            Err(e) => {
+                self.log_refused(plan, estimate, &e);
+                Err(e)
+            }
+        }
+    }
+
+    /// Reads the key and builds the adapter.
+    fn prepare(&self, plan: &Plan) -> Result<Arc<dyn Provider>, AiError> {
         let secret = secret_for(&*self.secrets, &plan.connection)?;
-        let provider = self.factory.build(&plan.connection, secret)?;
-        let id = provider.submit(&plan.model, &plan.request)?;
-        Ok(Job { provider, id })
+        self.factory.build(&plan.connection, secret)
+    }
+
+    fn log_refused(
+        &self,
+        plan: &Plan,
+        estimate: Option<craft_ai_model::CostEstimate>,
+        e: &AiError,
+    ) {
+        if let Some(file) = &self.history {
+            history::refused(file, plan, estimate, self.keep_prompts, e);
+        }
     }
 }
 

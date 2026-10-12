@@ -96,6 +96,15 @@ pub const PRESETS: &[Preset] = &[
         note: "Gemini image generation. API key only; full Vertex uses different credentials. Key cannot be tested without a paid request.",
     },
     Preset {
+        key: "artcraft-omni",
+        name: "ArtCraft Omni API key",
+        provider: "artcraft-omni",
+        endpoint: "https://api.storyteller.ai",
+        billing: Billing::Unknown,
+        needs_key: true,
+        note: "Staff-enabled API key for ArtCraft image and video generation. Subscription allowance is unverified; no free key test is documented.",
+    },
+    Preset {
         key: "ollama",
         name: "Ollama",
         provider: "ollama",
@@ -132,15 +141,6 @@ pub const PRESETS: &[Preset] = &[
         note: "Local workflows on this computer. Import workflow JSON files first; each becomes a model.",
     },
     Preset {
-        key: "sam3",
-        name: "SAM 3 (local)",
-        provider: "sam3",
-        endpoint: "http://127.0.0.1:8343/v1",
-        billing: Billing::Free,
-        needs_key: false,
-        note: "Local object detection. Requires the separate SAM 3 bridge and approved checkpoint.",
-    },
-    Preset {
         key: "custom",
         name: "Other (OpenAI compatible)",
         provider: "openai-compatible",
@@ -152,6 +152,27 @@ pub const PRESETS: &[Preset] = &[
 ];
 
 fn preset_models(preset: &Preset) -> Vec<ModelInfo> {
+    if preset.key == "artcraft-omni" {
+        return [
+            ("nano_banana", "Nano Banana (unverified)", "image.generate"),
+            (
+                "seedance_2p0",
+                "Seedance 2.0 (unverified)",
+                "video.generate",
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(id, label, capability)| {
+            Some(
+                ModelInfo::new(ModelId::new(id).ok()?, label).with(
+                    CapabilitySpec::new(CapabilityId::parse(capability).ok()?)
+                        .accepting(InputRole::Prompt, 1)
+                        .requiring(InputRole::Prompt),
+                ),
+            )
+        })
+        .collect();
+    }
     // Vertex express does not offer a known free key probe. Seed the documented model as
     // unverified so it can be bound without pretending the Test button has reached Google.
     if preset.key != "vertex-express" {

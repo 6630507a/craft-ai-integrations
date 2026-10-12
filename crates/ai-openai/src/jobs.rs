@@ -185,7 +185,7 @@ fn run(http: &Http, cell: &JobCell, plan: Plan) {
         Plan::Image(p) => run_image(http, cell, &p),
     };
     match outcome {
-        Ok(usage) => cell.succeed(usage),
+        Ok(usage) => cell.succeed(http.trust_cost(usage)),
         Err(e) => cell.fail(http.scrub(e)),
     }
 }

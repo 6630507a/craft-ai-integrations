@@ -5,7 +5,7 @@ jobs, consent and the launcher's shared store, plus a `Provider` trait, a script
 reusable conformance checks.
 
 Small on purpose: the model uses serde only, no I/O, no async runtime, and compiles for wasm.
-Jeremy is driving the shared layer implementation in this private interim workspace. We will
+Jeremy is driving the shared layer implementation in this interim workspace. We will
 propose the smallest common contract to craft-libs for technical review; neither this API nor
 its placement there has been accepted yet. See `crates/ai-model/src/lib.rs` for the module map.
 
@@ -54,8 +54,20 @@ cargo fmt --all -- --check
 ```
 
 Layout and rules mirror craft-libs (workspace, edition 2024, MIT OR Apache-2.0, never-crash lints,
-no unsafe). This is a private first-draft repository on `Jeremy8776/craft-ai-model`, not merged into
+no unsafe). This is a public first-draft repository on `Jeremy8776/craft-ai-model`, not merged into
 craft-libs or an app.
+
+## Tools and the local runtime
+
+`craft-ai-features` (wasm-safe) is what a launcher or app shows a person: AI tools such as select subject
+or generative fill, where each would appear, how it can run on this computer (model files with size, SHA-256,
+source and licence; ComfyUI node packs), and hosted options that have an adapter. `plan` compares a tool with
+an `Inventory` and says what is left: ready, a download of a stated size, a licence to accept, or a reason it
+cannot run. `craft-ai-comfy-env` (native) finds an existing ComfyUI Desktop install, inventories its model files
+and node packs, and downloads missing model files into it: resumable, checked against the recipe's size and
+SHA-256 before it takes its real name, token sent only to its own host. It reads an existing install and never
+starts, installs or repairs ComfyUI. Only select subject (SAM 3) has a local recipe so far. `ToolDesk` (craft-ai-client) lets a launcher choose which connected model does each tool, stored as the launcher default binding that apps inherit, and run a small generated sample to prove it; hosted samples ask first. Nothing has run
+against Hugging Face or a real ComfyUI workflow; node pack installation and the segmentation workflow are not built.
 
 ## Media-provider coverage
 
@@ -68,8 +80,17 @@ are registered in `ProviderFactory` through the shared library. Vertex express-m
 not full-project Vertex credentials and have no verified free key probe. None of these adapters
 has been exercised against its real service or a real SAM 3 checkpoint.
 
-There is no production-ready general media-handle upload/download or subscription-entitlement
-route. The ComfyUI adapter's opt-in local output persistence is a narrow offline-tested exception,
+Hosted providers return links that expire. `craft-ai-media` is an opt-in wrapper (`ProviderFactory::with_media_dir`)
+that copies such a link into an app-owned directory as the job finishes and returns a `file:` handle. It sends no
+credentials, accepts https only (loopback only for a connection the user marked local), re-checks every redirect,
+refuses private addresses, bounds the size, and takes the file type from the bytes, not a header. A failed copy keeps
+the original link and adds a notice rather than failing the job. Scripted-server tested only: no real delivery host,
+TLS, retry, resume or expiry tracking, and no input-side upload cache.
+
+There is no production-ready input-side media upload or subscription-entitlement
+route. `craft-ai-artcraft` covers only the ArtCraft Omni API-key route (prompt-only image and
+video, scripted-server tested); ArtCraft account or subscription access has no adapter because no
+official programmatic route is documented. The ComfyUI adapter's opt-in local output persistence is a narrow offline-tested exception,
 not a hosted-asset transfer solution. A saved connection does not mean its image or video operations
 are proven live. For a media-capable V1, remaining work includes ArtCraft's separate Omni API route,
 ComfyUI live execution and large-media input handles, hosted image-edit inputs, hosted durable asset

@@ -481,3 +481,30 @@ fn only_so_many_jobs_run_at_once() {
     // A slot frees once the first job is terminal.
     assert!(p.submit(&model("gpt-4o"), &text_req().streaming()).is_ok());
 }
+
+/// Submits one text job and polls it to the end, returning the usage the final snapshot carried.
+fn usage_of(server_url: &str) -> Option<craft_ai_model::Usage> {
+    let p = provider(server_url);
+    let id = p.submit(&model("gpt-4o"), &text_req()).unwrap();
+    for _ in 0..400 {
+        let snap = p.poll(&id).unwrap();
+        if snap.state.is_terminal() {
+            assert_eq!(snap.state, JobState::Succeeded);
+            return snap.usage;
+        }
+        pause();
+    }
+    panic!("the job never finished");
+}
+
+#[test]
+fn a_cost_field_from_an_unknown_server_is_not_shown_as_money() {
+    let reply = json!({"choices":[{"message":{"content":"hi"}}],
+                       "usage":{"prompt_tokens":3,"completion_tokens":2,"cost":0.00042}})
+    .to_string();
+    let server = Server::start(move |_| Reply::Json(200, reply.clone()));
+    let usage = usage_of(&server.url).unwrap();
+    assert_eq!(usage.input_units, Some(3), "tokens are still reported");
+    assert_eq!(usage.cost_micros, None);
+    assert_eq!(usage.currency, None);
+}
