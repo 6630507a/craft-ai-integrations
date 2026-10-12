@@ -1,5 +1,11 @@
 # craft-ai-model
 
+**What this is for:** one AI connection across every Craft app. A person sets up a tool and its model
+once, in the launcher or natively in any app, and every app that has that tool uses it with no further
+setup. The shared crates own connections, models, the tool to model binding, the model picker, consent
+and jobs; each app keeps its own interface for each tool. Where the suggested models or providers do not
+suit someone, they can add their own connection, model or tool route and plug it in.
+
 Interim implementation of the shared AI layer for the Craft suite: connections, models,
 capabilities, roles, requests, jobs, consent and the launcher's shared store, plus provider
 adapters, request history and reusable conformance checks.
@@ -143,6 +149,10 @@ records backend capabilities and limits, not a promise that every audited featur
    The data-only declarative adapter for non-OpenAI API shapes (u2) is designed
    (`docs/design/u2-declarative-adapter.md`) but not built. Launcher screens (u5) are not started.
    Nothing here has run against a real provider, download or repository.
+   **Phase 2e v1 (12/10/2026):** a client test shows two app ids reading the one stored
+   `select-subject` binding with no per-app setup, and that a tool with no model reports "no model
+   is chosen" rather than a fault. No app reads the role yet; the picker and popup (v2, v3) and
+   bring your own anywhere (v4) are proposed, not approved.
 6. **sg4/sg5:** per-app object picking, layer-mask/extraction/edit destinations and cropped detail
    selection with explicit coordinate mapping. Other apps remain proposed until adopted.
 7. **sg6/sg7/sg8:** native SAM 3.1 evaluation, separate soft-alpha matting, then bounded video

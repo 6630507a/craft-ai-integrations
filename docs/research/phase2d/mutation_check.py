@@ -6,7 +6,7 @@ source back. A case is CAUGHT only if the mutated code compiled and the test run
 does not compile counts as NOT CAUGHT (a bad mutant), so every survivor is either a test gap or a
 mutant to fix. Cargo runs serially, targeted with -p, with -j 8.
 
-Usage: mutation_check.py u1|u3|u4 [name-substring]
+Usage: mutation_check.py u1|u3|u4|p4|p10|v1 [name-substring]
 Saved logs pass through sam3-headless/scrub.py so no Windows account name is written.
 """
 import json
@@ -269,7 +269,23 @@ P10 = [
     ('cut-transfer-not-retried', MEDIA, '.map_err(|_| AiError::new(ErrorKind::Network, "media transfer failed"))?;', '.map_err(|_| AiError::new(ErrorKind::Provider, "media transfer failed"))?;', CM, 'retry', 'cut_transfer'),
 ]
 
-GROUPS = {'u1': U1, 'u3': U3, 'u4': U4, 'p4': P4, 'p10': P10}
+STORE = C + 'ai-model/src/store.rs'
+ROLE = C + 'ai-model/src/role.rs'
+TOOLS = C + 'ai-client/src/tools.rs'
+CLIENT = C + 'ai-client/src/client.rs'
+STATUS_RESOLVE = 'let resolved = match store.resolve(&self.app, role) {'
+# v1: one binding, every app (ai-client/tests/one_binding.rs)
+V1 = [
+    ('launcher-default-ignored', STORE, '&[overrides, self.defaults.as_slice()],', '&[overrides],', CL, 'one_binding', ''),
+    ('app-choice-ignored', STORE, '&[overrides, self.defaults.as_slice()],', '&[self.defaults.as_slice()],', CL, 'one_binding', ''),
+    ('default-beats-app-choice', STORE, '&[overrides, self.defaults.as_slice()],', '&[self.defaults.as_slice(), overrides],', CL, 'one_binding', ''),
+    ('status-reads-one-fixed-app', CLIENT, STATUS_RESOLVE, 'let resolved = match store.resolve(&AppId::new("launcher").unwrap_or_else(|_| self.app.clone()), role) {', CL, 'one_binding', ''),
+    ('unbound-reads-as-broken', ROLE, "Self::Unbound(r) => write!(f, \"no model is chosen for '{r}'\"),", "Self::Unbound(r) => write!(f, \"'{r}' is broken\"),", CL, 'one_binding', ''),
+    ('unbound-hides-the-tool', ROLE, "Self::Unbound(r) => write!(f, \"no model is chosen for '{r}'\"),", "Self::Unbound(_) => write!(f, \"no model is chosen\"),", CL, 'one_binding', ''),
+    ('choose-writes-nothing', TOOLS, 'self.shared.update(|store| set_default(store, binding))?;', 'let _ = binding;', CL, 'one_binding', ''),
+]
+
+GROUPS = {'u1': U1, 'u3': U3, 'u4': U4, 'p4': P4, 'p10': P10, 'v1': V1}
 # Mutants whose effect is also refused by a second, independent check on this machine. They are
 # recorded as equivalent here, with the reason, and are never counted as caught.
 EQUIVALENT = {
