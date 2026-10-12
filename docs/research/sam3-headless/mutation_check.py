@@ -1,0 +1,101 @@
+"""Exercise sg1 safety properties by deliberate mutants, restoring source after each.
+Usage: mutation_check.py [sg1|sg2|sg2b]   (default sg1). Only this slice's files are touched. Cargo runs serially, targeted, with -j 8.
+"""
+import json
+import os
+import re
+import sys
+import subprocess
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[3]
+OUT = Path(__file__).resolve().parent / 'verification'
+OUT.mkdir(exist_ok=True)
+MASKS = ROOT / 'crates/ai-comfyui/src/sam3_masks.rs'
+SESSION = ROOT / 'crates/ai-comfyui/src/sam3_session.rs'
+DETECT = ROOT / 'crates/ai-comfyui/src/sam3_detect.rs'
+INSTANCES = ROOT / 'crates/ai-comfyui/src/sam3_session/instances.rs'
+CAND_TYPES = ROOT / 'crates/ai-comfyui/src/sam3_candidates.rs'
+CAND_SESSION = ROOT / 'crates/ai-comfyui/src/sam3_session/candidates.rs'
+GROUP = sys.argv[1] if len(sys.argv) > 1 else 'sg1'
+CASES = [
+    ('first-mask-only', MASKS, 'for file in files {\n        if remaining == 0',
+     'for file in files.iter().take(1) {\n        if remaining == 0', 'sam3_masks', 'grounding_unions_every_instance'),
+    ('mask-count-loosened', MASKS, 'const MAX_MASKS: usize = 100;',
+     'const MAX_MASKS: usize = 101;', 'sam3_mask_limits', 'more_than_one_hundred'),
+    ('decoded-pixel-limit-loosened', MASKS, 'const MAX_DECODED_PIXELS: u64 = 64 * 1024 * 1024;',
+     'const MAX_DECODED_PIXELS: u64 = 128 * 1024 * 1024;', 'sam3_mask_limits', 'aggregate_decoded_pixel_budget'),
+    ('encoded-byte-limit-loosened', MASKS, 'const MAX_ENCODED_BYTES: u64 = 32 * 1024 * 1024;',
+     'const MAX_ENCODED_BYTES: u64 = 64 * 1024 * 1024;', 'sam3_mask_limits', 'aggregate_encoded_byte_budget'),
+    ('wrong-union-operation', MASKS, '*out = (*out).max(*value);',
+     '*out = (*out).min(*value);', 'sam3_mask_limits', 'union_preserves_soft_coverage'),
+    ('dimension-check-disabled', MASKS, 'if reader.info().width != width || reader.info().height != height {',
+     'if false {', 'sam3_mask_limits', 'a_wrong_sized_later_mask'),
+    ('output-type-preflight-disabled', MASKS, 'if file.get("type").and_then(Value::as_str) != Some("output")',
+     'if false', 'sam3_mask_limits', 'non_output_later_descriptor'),
+    ('output-sink-marker-reused', SESSION, 'NEXT_OUTPUT.fetch_add(1, Ordering::Relaxed)',
+     'NEXT_OUTPUT.fetch_add(0, Ordering::Relaxed)', 'sam3_cached', 'repeated_grounding'),
+]
+SG2 = [
+    ('stale-stamp-accepted', INSTANCES, "fn unstamped<'a>(text: &'a str, stamp: &str) -> Result<&'a str, AiError> {",
+     "fn unstamped<'a>(text: &'a str, stamp: &str) -> Result<&'a str, AiError> {"
+     "\n    if let Some((_, rest)) = text.split_once('\\n') {\n        return Ok(rest);\n    }",
+     'sam3_instances', 'text_stamped_for_another_request'),
+    ('stamp-constant', INSTANCES, 'fn stamp() -> String {', 'fn stamp() -> String {\n    return "craft-constant".to_owned();', 'sam3_instances', 'a_repeat_changes_only_the_stamp'),
+    ('preview-gate-disabled', INSTANCES, 'if !prepared.preview_text {', 'if false {', 'sam3_instances', 'a_server_without_preview_any'),
+    ('no-match-check-disabled', INSTANCES, 'if metadata.is_empty() {', 'if false {', 'sam3_instances', 'zero_detections'),
+    ('count-check-disabled', DETECT, 'if masks.len() != self.0.len() {', 'if false {', 'sam3_instances', 'consistent_boxes_and_scores'),
+    ('box-outside-image-accepted', DETECT, ' || x2 > w || y2 > h {', ' {', 'sam3_instances', 'malformed_or_impossible'),
+    ('score-range-loosened', DETECT, '(0.0..=1.0).contains(v)', '(0.0..=2.0).contains(v)', 'sam3_instances', 'malformed_or_impossible'),
+    ('text-limit-loosened', DETECT, 'const MAX_TEXT_BYTES: usize = 64 * 1024;', 'const MAX_TEXT_BYTES: usize = 1024 * 1024;', 'sam3_instances', 'oversized_metadata'),
+    ('pick-lowest-score', DETECT, '.max_by(|a, b|', '.min_by(|a, b|', 'sam3_instances', 'picking_chooses_the_highest'),
+    ('pick-coverage-loosened', DETECT, 'const PICK_COVERAGE: u8 = 128;', 'const PICK_COVERAGE: u8 = 1;', 'sam3_instances', 'picking_ignores_pixels'),
+    ('mask-bounds-off-by-one', DETECT, 'x2 = x2.max(x + 1);', 'x2 = x2.max(x);', 'sam3_instances', 'instances_keep_mask_box_score'),
+]
+SG2B = [
+    ('candidate-stale-stamp-accepted', INSTANCES, "fn unstamped<'a>(text: &'a str, stamp: &str) -> Result<&'a str, AiError> {",
+     "fn unstamped<'a>(text: &'a str, stamp: &str) -> Result<&'a str, AiError> {"
+     "\n    if let Some((_, rest)) = text.split_once('\\n') {\n        return Ok(rest);\n    }",
+     'sam3_candidates', 'text_not_stamped'),
+    ('candidate-stamp-constant', INSTANCES, 'pub(super) fn stamp() -> String {',
+     'pub(super) fn stamp() -> String {\n    return "craft-constant".to_owned();', 'sam3_candidates', 'a_repeat_changes_only'),
+    ('score-count-check-disabled', CAND_TYPES, 'if masks.len() != scores.len() {', 'if false {', 'sam3_candidates', 'a_score_count_that_differs'),
+    ('all-empty-accepted', CAND_TYPES, 'if candidates.iter().all(|c| c.mask_bounds.is_none()) {', 'if false {', 'sam3_candidates', 'an_empty_candidate'),
+    ('candidate-limit-loosened', CAND_TYPES, 'pub(crate) const MAX_CANDIDATES: usize = 3;', 'pub(crate) const MAX_CANDIDATES: usize = 4;', 'sam3_candidates', 'more_than_three'),
+    ('candidate-limit-check-disabled', CAND_TYPES, 'if items.len() > MAX_CANDIDATES {', 'if false {', 'sam3_candidates', 'more_than_three'),
+    ('candidate-order-reversed', CAND_TYPES, 'masks.into_iter().zip(scores).enumerate()', 'masks.into_iter().rev().zip(scores).enumerate()', 'sam3_candidates', 'candidates_keep_server_order'),
+    ('highest-scoring-picks-lowest', CAND_TYPES, '.max_by(|a, b|', '.min_by(|a, b|', 'sam3_candidates', 'candidates_keep_server_order'),
+    ('point-limit-loosened', CAND_SESSION, 'const MAX_POINTS: usize = 32;', 'const MAX_POINTS: usize = 64;', 'sam3_candidates', 'unsupported_or_invalid'),
+    ('box-guard-removed', CAND_SESSION, 'if prompt.box_.is_some() {', 'if false {', 'sam3_candidates', 'unsupported_or_invalid'),
+    ('segmentation-gate-removed', CAND_SESSION, 'if !prepared.segmentation {', 'if false {', 'sam3_candidates', 'a_server_missing'),
+    ('positive-points-sent-as-the-wrong-list', CAND_SESSION, '"coordinates": coordinates(&prompt.positive_points),', '"coordinates": coordinates(&prompt.negative_points),', 'sam3_candidates', 'the_graph_sends_points'),
+    ('multimask-off', CAND_SESSION, '"use_multimask": true', '"use_multimask": false', 'sam3_candidates', 'the_graph_sends_points'),
+    ('best-mask-only', CAND_SESSION, '"output_best_mask": false', '"output_best_mask": true', 'sam3_candidates', 'the_graph_sends_points'),
+]
+if GROUP == 'sg2':
+    CASES = SG2
+elif GROUP == 'sg2b':
+    CASES = SG2B
+elif GROUP != 'sg1':
+    raise SystemExit('group must be sg1, sg2 or sg2b')
+results = []
+for name, path, old, new, target, test in CASES:
+    original = path.read_bytes()
+    text = original.decode('utf-8').replace('\r\n', '\n')
+    assert text.count(old) == 1, (name, 'mutation did not have exactly one target')
+    newline = '\r\n' if b'\r\n' in original else '\n'
+    try:
+        path.write_bytes(text.replace(old, new).replace('\n', newline).encode('utf-8'))
+        completed = subprocess.run(['cargo', 'test', '-p', 'craft-ai-comfyui', '--test', target,
+                                    test, '-j', '8'], cwd=ROOT, capture_output=True, text=True, timeout=180)
+        log = completed.stdout + completed.stderr
+        (OUT / ('mutation-' + name + '.txt')).write_text(log, encoding='utf-8')
+        caught = completed.returncode != 0 and 'test result: FAILED' in log
+        results.append({'mutation': name, 'caught_by_runtime_test': caught, 'exit_code': completed.returncode})
+        print(name, 'CAUGHT' if caught else 'NOT CAUGHT', flush=True)
+    finally:
+        path.write_bytes(original)
+        os.utime(path, None)
+    (OUT / (GROUP + '-mutations.json')).write_text(json.dumps(results, indent=2), encoding='utf-8')
+assert all(result['caught_by_runtime_test'] for result in results), 'A safety mutation survived'
+print(json.dumps({'mutations': len(results), 'caught': sum(result['caught_by_runtime_test'] for result in results)}))

@@ -100,7 +100,7 @@ pub(crate) fn fetch(
             .map_err(|_| AiError::new(ErrorKind::Internal, "could not retain media output"))?;
         Payload::handle(&uri, media, Some(size))?
     } else {
-        let bytes = http.get_media(&path)?;
+        let bytes = http.get_media_limited(&path, max_bytes.min(32 * 1024 * 1024))?;
         if bytes.is_empty() {
             return Err(AiError::new(
                 ErrorKind::Provider,

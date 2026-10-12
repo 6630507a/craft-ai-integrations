@@ -1,8 +1,8 @@
 # craft-ai-model
 
-Interim data model for AI in the Craft apps: connections, models, capabilities, roles, requests,
-jobs, consent and the launcher's shared store, plus a `Provider` trait, a scripted mock and
-reusable conformance checks.
+Interim implementation of the shared AI layer for the Craft suite: connections, models,
+capabilities, roles, requests, jobs, consent and the launcher's shared store, plus provider
+adapters, request history and reusable conformance checks.
 
 Small on purpose: the model uses serde only, no I/O, no async runtime, and compiles for wasm.
 Jeremy is driving the shared layer implementation in this interim workspace. We will
@@ -28,7 +28,8 @@ Connections are added, edited, tested and removed through `ConnectionDraft` (rul
 A fifth crate, `craft-ai-egui`, has the shared egui widgets: model status and picker, consent prompt,
 and job progress with cancel. Needs Rust 1.95 (egui 0.36).
 
-`craft-ai-comfyui` is an offline-tested, **local-only workflow adapter**. Its shared
+`craft-ai-comfyui` is a **local-only workflow adapter** with scripted generic-workflow tests
+and live-tested SAM 3 point, text and prepared-hover clients. Its shared
 `WorkflowLibrary` stores API-format JSON graphs for all apps that use `craft-ai-client`.
 It maps a prompt field, and for `image.inpaint` requires explicitly mapped `LoadImage` source
 and `LoadImageMask` mask fields connected to the output. Source PNG/JPEG and mask PNG are
@@ -43,8 +44,9 @@ it does not guarantee execution will succeed. By default outputs stay inline wit
 limit. An app can opt in through `ProviderFactory::with_comfyui_output_dir` to stream output
 into its own existing directory, with a 1 GiB maximum and a local `file:` payload handle.
 The app owns retention and cleanup. Partial, oversize and redirected transfers leave no asset.
-No input file handles, arbitrary image formats, general parameter mapping, MIME/content
-verification, real-server execution or app mounting yet.
+No input file handles, arbitrary image formats, general parameter mapping or generic output
+MIME/content verification yet. Generic image/video/inpaint execution and app mounting remain
+separate live gates; the dedicated SAM 3 image/session path is already live-tested.
 
 ```sh
 cargo test -p craft-ai-comfyui -j 8
@@ -55,7 +57,8 @@ cargo fmt --all -- --check
 
 Layout and rules mirror craft-libs (workspace, edition 2024, MIT OR Apache-2.0, never-crash lints,
 no unsafe). This is a public first-draft repository on `Jeremy8776/craft-ai-model`, not merged into
-craft-libs or an app.
+craft-libs. PhotoCraft dev consumes the dedicated SAM 3 client, not the complete shared
+role/connection/consent flow; adoption by the other apps remains open.
 
 ## Tools and the local runtime
 
@@ -66,19 +69,23 @@ an `Inventory` and says what is left: ready, a download of a stated size, a lice
 cannot run. `craft-ai-comfy-env` (native) finds an existing ComfyUI Desktop install, inventories its model files
 and node packs, and downloads missing model files into it: resumable, checked against the recipe's size and
 SHA-256 before it takes its real name, token sent only to its own host. It reads an existing install and never
-starts, installs or repairs ComfyUI. Only select subject (SAM 3) has a local recipe so far. `ToolDesk` (craft-ai-client) lets a launcher choose which connected model does each tool, stored as the launcher default binding that apps inherit, and run a small generated sample to prove it; hosted samples ask first. Nothing has run
-against Hugging Face or a real ComfyUI workflow; node pack installation and the segmentation workflow are not built.
+starts, installs or repairs ComfyUI. Only select subject (SAM 3) has a local recipe so far. `ToolDesk` (craft-ai-client) lets a launcher choose which connected model does each tool, stored as the launcher default binding that apps inherit, and run a small generated sample to prove it; hosted samples ask first. The existing headless ComfyUI and SAM 3 segmentation/session graphs have passed real tests.
+No model download from Hugging Face or automatic node-pack installation has been verified.
+The SAM 3 recipe is usable for the current PhotoCraft integration; other app uses and unused
+audited capabilities are not automatically shipped features.
 
 ## Media-provider coverage
 
 The provider contract accepts open capability IDs, typed prompts, sources, masks and references,
 large-media handles, and asynchronous jobs. Scripted-server adapters now cover OpenAI-compatible
 text/image, BFL FLUX image/video, Volcengine Ark Seedance video, and Vertex express-mode Gemini
-image generation. Local SAM 3 text-guided image detection has a loopback bridge tested with a fake
-predictor; a real checkpoint and Python/CUDA runtime are not set up. Local ComfyUI workflows
+image generation. The older direct SAM 3 detector bridge remains fake-predictor tested.
+Separately, `Sam3Point` and `Sam3Session` execute the installed SAM 3 checkpoint through real
+headless ComfyUI and are used by PhotoCraft dev. Local ComfyUI workflows
 are registered in `ProviderFactory` through the shared library. Vertex express-mode keys are
 not full-project Vertex credentials and have no verified free key probe. None of these adapters
-has been exercised against its real service or a real SAM 3 checkpoint.
+has been exercised against its real hosted service. This does not negate the separate
+live local SAM 3 clients.
 
 Hosted providers return links that expire. `craft-ai-media` is an opt-in wrapper (`ProviderFactory::with_media_dir`)
 that copies such a link into an app-owned directory as the job finishes and returns a `file:` handle. It sends no
@@ -93,16 +100,52 @@ video, scripted-server tested); ArtCraft account or subscription access has no a
 official programmatic route is documented. The ComfyUI adapter's opt-in local output persistence is a narrow offline-tested exception,
 not a hosted-asset transfer solution. A saved connection does not mean its image or video operations
 are proven live. For a media-capable V1, remaining work includes ArtCraft's separate Omni API route,
-ComfyUI live execution and large-media input handles, hosted image-edit inputs, hosted durable asset
-transfer, and real-service compatibility checks when authorised. API-key access to ArtCraft's
+generic ComfyUI image/video/inpaint live execution and large-media input handles, hosted
+image-edit inputs, robust asset transfer and real-service compatibility checks when authorised. API-key access to ArtCraft's
 Omni API is not evidence that a user's ArtCraft subscription covers those requests. Standalone apps
 must mount the shared ConnectionPanel in Preferences; the panel alone does not integrate an app.
 The living acceptance checklist is `../ai-framework-handoff/index.html` (generated from `build.py`).
 
 ## Status
 
-A first draft, built outside the Craft repos so it can be read, tried and replaced. Nothing here has been
-run against a live server, over TLS, or looked at on screen. The shared store location is a proposal.
+A shared layer in development, with a provisional contract pending craft-libs technical review.
+Core/native/client pieces and hosted adapters have scripted tests. Local SAM 3 has real headless
+execution and a PhotoCraft dev integration; this does not complete the media V1 or other app
+adapters. Hosted compatibility, TLS and the proposed shared-store location remain unverified.
+Further work in this slice is local and uncommitted; no publication is authorised.
+
+## Roadmap and feature gates
+
+The canonical suite task list remains `../ai-framework-handoff/index.html`, generated from
+`build.py` and `handoff_tasks.py`. The [SAM 3 audit](docs/research/sam3-headless/README.md)
+records backend capabilities and limits, not a promise that every audited feature is in an app.
+
+1. **sg1, done:** bounded SAM 3 instance-mask retrieval, explicit union versus individual
+   results, count/byte/pixel/dimension limits, fail-whole on a bad later mask, cache-safe repeats.
+   Verified live; see `docs/research/sam3-headless/verification/`.
+2. **sg2/sg3, now:** sg2a is done (typed grounding instances: mask, detector box, score, exact
+   bounds, pick-under-pixel; live-verified). sg2b point candidates are built (the alternative
+   masks for a click, with scores). Next is box candidates and refinement, then sg3: managed prepared sessions, revision invalidation and scoped
+   cancellation. No new UI until the crate path works.
+3. **p4/p10:** bounded file-handle uploads and generic output content verification, durable assets
+   and long-job reliability. A saved link is not a retained asset; an input handle is not an upload.
+4. **p5/p7/p8:** real source/reference/edit inputs for the distinct ArtCraft, Vertex and BFL API
+   families, with scripted conformance first and live hosted tests only when authorised.
+5. **sg4/sg5:** per-app object picking, layer-mask/extraction/edit destinations and cropped detail
+   selection with explicit coordinate mapping. Other apps remain proposed until adopted.
+6. **sg6/sg7/sg8:** native SAM 3.1 evaluation, separate soft-alpha matting, then bounded video
+   propagation. No new packs/models by default, and no segmentation-as-matting claim.
+
+V1 still requires a usable configured image operation for each named route, real local image
+and video workflows, one hosted long-running video route, consent/auth/unsupported-operation
+handling and app-owned asset persistence through the common job path. Audit, crate implementation,
+live execution and app adoption are separate milestones. The in-app setup popup and standalone
+Preferences mounting remain open; a working SAM 3 test is not proof that those journeys are built.
+
+Audit constraints carried into the roadmap: interactive negative boxes are ignored; grounding
+exemplar boxes are not strict ROIs; the custom still-image helper consumes one input image;
+hover JPEGs are not exact masks; candidate order is not a semantic label; refinement is not
+guaranteed improved quality. Runtime catalogue entries stay executable-only.
 
 ## Licence
 

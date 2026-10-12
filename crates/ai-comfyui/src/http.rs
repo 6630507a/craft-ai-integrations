@@ -69,10 +69,14 @@ impl Http {
         serde_json::from_slice(&self.read(resp, max)?)
             .map_err(|_| AiError::new(ErrorKind::Provider, "ComfyUI returned invalid JSON"))
     }
-    pub fn get_media(&self, path: &str) -> Result<Vec<u8>, AiError> {
+
+    /// Read at most the caller's remaining batch budget, plus one oversize sentinel byte.
+    pub fn get_media_limited(&self, path: &str, max: u64) -> Result<Vec<u8>, AiError> {
+        let max =
+            usize::try_from(max).map_err(|_| AiError::invalid("ComfyUI media limit is invalid"))?;
         let url = format!("{}{path}", self.base);
         let resp = self.check(self.agent.get(url).call())?;
-        self.read(resp, 32 * 1024 * 1024)
+        self.read(resp, max)
     }
     /// Streams a bounded response into a temporary file owned by the caller. Redirects are off.
     pub fn get_media_to(

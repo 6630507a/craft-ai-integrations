@@ -1,0 +1,42 @@
+[
+  {
+    "mutation": "first-mask-only",
+    "caught_by_runtime_test": true,
+    "exit_code": 101
+  },
+  {
+    "mutation": "mask-count-loosened",
+    "caught_by_runtime_test": true,
+    "exit_code": 101
+  },
+  {
+    "mutation": "decoded-pixel-limit-loosened",
+    "caught_by_runtime_test": true,
+    "exit_code": 101
+  },
+  {
+    "mutation": "encoded-byte-limit-loosened",
+    "caught_by_runtime_test": true,
+    "exit_code": 101
+  },
+  {
+    "mutation": "wrong-union-operation",
+    "caught_by_runtime_test": true,
+    "exit_code": 101
+  },
+  {
+    "mutation": "dimension-check-disabled",
+    "caught_by_runtime_test": true,
+    "exit_code": 101
+  },
+  {
+    "mutation": "output-type-preflight-disabled",
+    "caught_by_runtime_test": true,
+    "exit_code": 101
+  },
+  {
+    "mutation": "output-sink-marker-reused",
+    "caught_by_runtime_test": true,
+    "exit_code": 101
+  }
+]

@@ -1,14 +1,16 @@
 //! Prepared local SAM 3 image embedding for fast hover previews and exact selection masks.
 //! The installed interactive node owns one PhotoCraft cache slot; each prepare forces new image state.
 use crate::http::Http;
-use crate::{output, sam3_point::grayscale_mask};
+
 use base64::Engine;
 use craft_ai_model::endpoint::Endpoint;
-use craft_ai_model::job::Event;
-use craft_ai_model::payload::Payload;
+
 use craft_ai_model::{AiError, ErrorKind};
 use serde_json::{Value, json};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+mod candidates;
+mod instances;
 
 const NODE: &str = "craft_ai_sam3";
 const REQUIRED: &[&str] = &[
@@ -71,6 +73,10 @@ struct Prepared {
     nonce: u128,
     /// The server has the text grounding node (checked once, during `prepare`).
     grounding: bool,
+    /// The server has `PreviewAny` and `StringConcatenate`, which carry stamped boxes and scores out.
+    preview_text: bool,
+    /// The server has `SAM3Segmentation` and `SAM3PointCollector` (point candidates).
+    segmentation: bool,
 }
 
 /// A single local session. Calls block and must never run on the UI thread.
@@ -158,6 +164,10 @@ impl Sam3Session {
             height,
             nonce,
             grounding: nodes.get("SAM3Grounding").is_some(),
+            segmentation: nodes.get("SAM3Segmentation").is_some()
+                && nodes.get("SAM3PointCollector").is_some(),
+            preview_text: nodes.get("PreviewAny").is_some()
+                && nodes.get("StringConcatenate").is_some(),
         };
         let graph = self.graph(&prepared, json!([{"session":nonce}]), false);
         self.queue(graph)?;
@@ -216,32 +226,7 @@ impl Sam3Session {
         let node = record
             .pointer("/outputs/5")
             .ok_or_else(|| AiError::new(ErrorKind::Provider, "SAM 3 returned no selection mask"))?;
-        let Event::Output(output) = output::fetch(&self.http, node, false, None, 32 * 1024 * 1024)?
-        else {
-            return Err(AiError::new(
-                ErrorKind::Provider,
-                "SAM 3 returned no selection mask",
-            ));
-        };
-        let Payload::Inline { media_type, data } = output.payload else {
-            return Err(AiError::new(
-                ErrorKind::Provider,
-                "SAM 3 mask was not inline",
-            ));
-        };
-        if media_type.as_str() != "image/png" {
-            return Err(AiError::new(ErrorKind::Provider, "SAM 3 mask was not PNG"));
-        }
-        let mask = grayscale_mask(&data)?;
-        let reader = png::Decoder::new(mask.as_slice())
-            .read_info()
-            .map_err(|_| AiError::invalid("SAM 3 returned an invalid mask"))?;
-        if reader.info().width != prepared.width || reader.info().height != prepared.height {
-            return Err(AiError::invalid(
-                "SAM 3 mask dimensions differ from the source image",
-            ));
-        }
-        Ok(mask)
+        crate::sam3_masks::fetch(&self.http, node, prepared.width, prepared.height)?.union_png()
     }
 
     /// Return a JPEG overlay for the full prompt, without queueing a graph.
@@ -297,38 +282,24 @@ impl Sam3Session {
 
     /// Text grounding: segment everything matching the phrase, reusing the prepared image.
     pub fn ground(&self, text: &str) -> Result<Vec<u8>, AiError> {
-        let prepared = self
-            .prepared
-            .as_ref()
-            .ok_or_else(|| AiError::invalid("SAM 3 image not prepared"))?;
-        let trimmed = text.trim();
-        if trimmed.is_empty() || trimmed.len() > 200 {
-            return Err(AiError::invalid(
-                "SAM 3 text prompt must be 1 to 200 characters",
-            ));
-        }
-        if !prepared.grounding {
-            return Err(AiError::unsupported(
-                "ComfyUI is missing the SAM3Grounding node",
-            ));
-        }
-        let graph = json!({
-            "1": {"class_type": "LoadImage", "inputs": {"image": prepared.filename}},
-            "2": {"class_type": "LoadSAM3Model", "inputs": {"precision": "auto", "compile": false}},
-            "3": {"class_type": "SAM3Grounding", "inputs": {
-                "sam3_model_config": ["2", 0], "image": ["1", 0],
-                "confidence_threshold": 0.2, "text_prompt": trimmed, "max_detections": -1}},
-            "4": {"class_type": "MaskToImage", "inputs": {"mask": ["3", 0]}},
-            "5": {"class_type": "SaveImage", "inputs": {"images": ["4", 0], "filename_prefix": "craft-sam3-ground"}},
-        });
-        let mask = self.mask_from(graph)?;
-        if !mask_has_pixels(&mask) {
+        self.ground_masks(text)?.union_png()
+    }
+
+    /// Preserve every matching instance in server order; no partial batch is returned on failure.
+    pub fn ground_masks(&self, text: &str) -> Result<crate::Sam3MaskBatch, AiError> {
+        let (prepared, trimmed) = self.grounding_request(text)?;
+        let masks = self.masks_from(instances::grounding_graph(
+            &prepared.filename,
+            trimmed,
+            None,
+        ))?;
+        if !masks.has_pixels()? {
             return Err(AiError::new(
                 ErrorKind::Provider,
                 format!("Nothing matched \u{201c}{trimmed}\u{201d}"),
             ));
         }
-        Ok(mask)
+        Ok(masks)
     }
 
     /// Try each phrase in order and return the first that matches something, with the phrase.
@@ -353,6 +324,10 @@ impl Sam3Session {
     }
 
     fn mask_from(&self, graph: Value) -> Result<Vec<u8>, AiError> {
+        self.masks_from(graph)?.union_png()
+    }
+
+    fn masks_from(&self, graph: Value) -> Result<crate::Sam3MaskBatch, AiError> {
         let prepared = self
             .prepared
             .as_ref()
@@ -361,32 +336,7 @@ impl Sam3Session {
         let node = record
             .pointer("/outputs/5")
             .ok_or_else(|| AiError::new(ErrorKind::Provider, "SAM 3 returned no selection mask"))?;
-        let Event::Output(output) = output::fetch(&self.http, node, false, None, 32 * 1024 * 1024)?
-        else {
-            return Err(AiError::new(
-                ErrorKind::Provider,
-                "SAM 3 returned no selection mask",
-            ));
-        };
-        let Payload::Inline { media_type, data } = output.payload else {
-            return Err(AiError::new(
-                ErrorKind::Provider,
-                "SAM 3 mask was not inline",
-            ));
-        };
-        if media_type.as_str() != "image/png" {
-            return Err(AiError::new(ErrorKind::Provider, "SAM 3 mask was not PNG"));
-        }
-        let mask = grayscale_mask(&data)?;
-        let reader = png::Decoder::new(mask.as_slice())
-            .read_info()
-            .map_err(|_| AiError::invalid("SAM 3 returned an invalid mask"))?;
-        if reader.info().width != prepared.width || reader.info().height != prepared.height {
-            return Err(AiError::invalid(
-                "SAM 3 mask dimensions differ from the source image",
-            ));
-        }
-        Ok(mask)
+        crate::sam3_masks::fetch(&self.http, node, prepared.width, prepared.height)
     }
 
     /// Validate every point and the box against the prepared image.
@@ -461,7 +411,30 @@ impl Sam3Session {
         graph
     }
 
-    fn queue(&self, graph: Value) -> Result<Value, AiError> {
+    fn queue(&self, mut graph: Value) -> Result<Value, AiError> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT_OUTPUT: AtomicU64 = AtomicU64::new(0);
+        let nodes = graph
+            .as_object_mut()
+            .ok_or_else(|| AiError::invalid("SAM 3 graph is invalid"))?;
+        for node in nodes.values_mut() {
+            if node.get("class_type").and_then(Value::as_str) != Some("SaveImage") {
+                continue;
+            }
+            if let Some(prefix) = node.pointer_mut("/inputs/filename_prefix") {
+                let name = prefix
+                    .as_str()
+                    .ok_or_else(|| AiError::invalid("SAM 3 output prefix is invalid"))?;
+                let unique = format!(
+                    "{name}-{}-{}",
+                    std::process::id(),
+                    NEXT_OUTPUT.fetch_add(1, Ordering::Relaxed)
+                );
+                *prefix = Value::String(unique);
+            }
+        }
+        // A fully cached SaveImage can yield no history outputs on newer servers.
+        // Change only the sink signature, keeping source/model/inference nodes cacheable.
         let response = self.http.post("/prompt", &json!({"prompt":graph}))?;
         let id = response
             .get("prompt_id")
@@ -501,19 +474,5 @@ impl Sam3Session {
             }
             std::thread::sleep(Duration::from_millis(150));
         }
-    }
-}
-
-/// True when the grayscale mask PNG has any selected pixel.
-fn mask_has_pixels(png_bytes: &[u8]) -> bool {
-    let Ok(mut reader) = png::Decoder::new(png_bytes).read_info() else {
-        return true;
-    };
-    let mut buf = vec![0u8; reader.output_buffer_size()];
-    match reader.next_frame(&mut buf) {
-        Ok(info) => buf
-            .get(..info.buffer_size())
-            .is_some_and(|px| px.iter().any(|v| *v != 0)),
-        Err(_) => true,
     }
 }

@@ -28,7 +28,7 @@ Local SAM 3 object selection for PhotoCraft, through the existing Desktop ComfyU
 - A single click is ambiguous between part and whole (a click on a face selected the face only). Multiple points or a box resolve it. A candidate-cycling control would help.
 - Server latency is not the problem. Measured at 1536 px: prepare 0.96 s, hover preview 0.1 s, commit 0.55 s, object_info 0.24 s (grounding no longer refetches it). Cold start of ComfyUI on first use is slower and has not been measured or addressed.
 - The interactive node's embedding cache is one shared slot: a second session replaces the first.
-- ComfyUI headless: `python start_comfy_headless.py` (venv python in `C:/Users/jerem/AppData/Local/hermes/hermes-agent/venv`), listens on 127.0.0.1:8000 only (another app owns IPv6 ::1:8000). The app also starts it via `sam3_server.rs`. A harmless alembic `0008_drop_asset_meta` warning prints at startup.
+- ComfyUI headless: `python start_comfy_headless.py` (venv python in `%USERPROFILE%/AppData/Local/hermes/hermes-agent/venv`), listens on 127.0.0.1:8000 only (another app owns IPv6 ::1:8000). The app also starts it via `sam3_server.rs`. A harmless alembic `0008_drop_asset_meta` warning prints at startup.
 - Nodes used: `SAM3InteractiveCollector` (points, boxes, preview endpoint `/sam3/interactive_segment_one`) and `SAM3Grounding` (`text_prompt`, `confidence_threshold` 0.2). Edge refinement (`refinement_iterations`) exists only in the Multiprompt node, not the interactive collector.
 - The i18n catalogs are also deflated by `build.rs`; if `deflated_catalogs_match_their_files` fails after editing a `.tsv`, touch `crates/ui-egui/build.rs` and rerun.
 - `sam3_selection.rs` is about 510 lines (soft limit 500). Split the worker or the hover logic out when next touched.
@@ -64,7 +64,7 @@ Consider `claude-design` or `impeccable` first. Jeremy tests UI himself, so buil
 # library (does not need ComfyUI)
 cd craft-ai-model && cargo test -p craft-ai-comfyui --test sam3_session --no-default-features -j 8
 # app (one cargo at a time, -j 8, shared target dir)
-cd photocraft-wt-ai && CARGO_TARGET_DIR=C:/Users/jerem/Apps/ArtCraft/photocraft-src/target \
+cd photocraft-wt-ai && CARGO_TARGET_DIR=%USERPROFILE%/Apps/ArtCraft/photocraft-src/target \
   cargo test -p photocraft-ui-egui --lib -j 8 -- sam3_ i18n
 # live tests (ComfyUI running on 127.0.0.1:8000)
 ... -- --ignored runtime_tests
@@ -78,3 +78,49 @@ Drive the installed app: launch with `--control 7878 --control-token-file <token
 ## Rules from Jeremy that apply
 
 No commit or push unasked (this push was asked: his own repos only, feature branches). No em dashes. One cargo process at a time with `-j 8` (heavy builds have crashed his PC). Test builds go into the test build without being asked. Minimal tool use, short sessions.
+
+## SAM 3 parameter inventory and part-concept test (12/10/2026, Jeremy asked)
+
+Verified live on the installed ComfyUI node pack (`comfyui-sam3` in `Documents/ComfyUI/custom_nodes`, wrapping Meta's sam3 code).
+
+Grounding (`SAM3Grounding`): `text_prompt` (one phrase, concrete nouns, parts included), `confidence_threshold` 0-1 default 0.2 (score = presence x class prob), `positive_boxes`/`negative_boxes` (focus/exclude regions), `max_detections` -1..100. Outputs masks, boxes, scores JSON sorted by score; no per-detection label, with one prompt the label is the prompt word. Interactive collector: positive/negative points, one box, `multimask_output` hardcoded on, best of 3 (subpart/part/whole) taken; `predict_inst` also accepts `mask_input` (feed previous low-res logits back, native refinement, unused today) and `return_logits`. Unused nodes: `SAM3Segmentation` (`refinement_iterations` 0-10, `output_best_mask=false` gives all 3 candidates), `SAM3MultipromptSegmentation`, `LoadSAM3Model` (`precision`, `compile`). Wrapper hardcodes resolution 1008 and mask NMS IoU 0.5. Model level `forward_text` accepts a caption LIST: multi-concept detection with per-detection concept labels is possible, node passes one caption.
+
+Live test (astronaut.png 512 px, threshold 0.2, scratch script `sam3_masks_test.py`, masks saved then measured): `eye` 2 detections, the two eyes side by side at y 96-108; `mouth` 1 detection between and below them; `face` 1 big box containing both plus 1 small false positive; `person` whole figure. Part concepts work today; each grounding pass about 1 s. Eye boxes are ~20 px on 512 px, so part detections are small, mind hit targets in the UI.
+
+Jeremy's three asks mapped: refinement = candidate cycling (free), mask_input feedback (one extra 0.1 s call), refinement_iterations (needs SAM3Segmentation routing or a sam3_server endpoint extension). Bbox labels = app-side drawing of boxes+scores already returned; multi-concept labels need the bridge to pass a caption list. Details in global detection = sequential part passes after the main one, or the multi-caption extension.
+
+## End-to-end app test of part concepts (12/10/2026, "reboot and test")
+
+PhotoCraft test build restarted with the control channel and driven through the real panel (scratch script `sam3_app_ground_test2.py`; panel text field focused by ui.click, text via ui.type, Enter to ground). Results on astronaut.png 512 px, exact match with the node-level test:
+
+- `eye` -> status "Selected \"eye\"", selectionBounds [193, 96, 18, 9]
+- `mouth` -> "Selected \"mouth\"", [206, 141, 37, 10]
+- `person` -> "Selected \"person\"", [20, 16, 341, 496]
+
+Bug found while testing: the panel was INVISIBLE on a fresh start. egui memory (PhotoCraftData/ui.ron, portable) had restored its position at pivot x=2051 from a session where the window was wider, but today's window geometry is 1707 px, so the floating panel rendered outside the viewport while `sam3_panel` was true; the tool looked dead ("Click an object to select it" but no panel). Workaround applied by hand: with the app closed, every `pivot_pos` x>1700 in ui.ron was moved to 900. Code fix needed with NEXT item 9: clamp the restored window position into the current viewport (or reset it when out of bounds). Also note ui.set alone does not reopen a closed panel if the tool was already active; switch tools to trigger `follow_panel`.
+
+## The popup is now a Properties section (12/10/2026, Jeremy: "the pop up should be in properties panel along with any settings or parameters we add")
+
+The floating Select Subject card is gone; its controls are a collapsible "Select Subject" section at the top of Properties, shown while the Object Selection tool is active. Docked Properties (Pro) and the floating Studio card both render it (`sam3_panel::properties`); Studio keeps the card up even with no layer content. This is where model settings (refinement, labels, part concepts) land as they are added. It also removes the off-screen panel class of bug: nothing floats, so nothing restores off-viewport.
+
+Changes in `photocraft-wt-ai` (uncommitted, on top of the f1d196da merge):
+- `sam3_panel.rs` rewritten: `properties(app, ui)` instead of the floating `show`; uses `props_layout::section`, the app widgets, and only pre-existing tl! strings (no new catalog rows needed).
+- `panels.rs`: the section at the top of `properties_body_inner` and inside `properties_window` (both calls `#[cfg(not(wasm32))]`; on wasm `sam3 = false`); the Studio card's layer part moved behind `Option<(Layer, bool, bool)>`.
+- `sam3_selection.rs`: `follow_panel`/`panel_closed` and the `sam3_panel`/`sam3_panel_closed` state management removed; `state.rs` fields removed (old preferences.json files still load: unknown fields are ignored).
+- `lib.rs`: the `sam3_panel::show` call removed.
+- New runtime test `the_properties_section_selects_the_subject_from_its_button` (kittest: renders the section, clicks the button by role - the section header shares the label, take the LAST match - and asserts one Job::Ground goes out; also asserts no section with another tool). Replaces the closed-panel test.
+- `vi.tsv`: 5 rows appended (hint, Intersect, Replace, Text, person-red-car hint); the other 16 catalogs already had them. Touch `crates/ui-egui/build.rs` after tsv edits.
+
+Gates: sam3+i18n tests 76 passed; clippy -D warnings clean; fmt clean; wasm check clean. Full ui-egui lib has 3 failures that PRE-EXIST this branch's upstream merge (verified on clean HEAD f1d196da): `retouch_ui::object_selection_click_falls_back_to_quick_selection`, `canvas_menu_tests::secondary_taps_keep_selection_menus_open`, `file_dialog::tests::export_as_with_several_artboards_selected_writes_one_file_each`. Not caused by SAM 3 work; the next session should look at them.
+
+Ported by hand into `photocraft-wt-devbuild` (same edits; branch NOT committed so update-dev-build.py would lose them). Test build installed 14:21, backup `backup/photocraft-pre-props-section-20261012-1421.exe`, hash verified. Live-verified through the control channel: typed `eye` -> "Selected \"eye\"" bounds [193,96,18,9]; `mouth` -> [206,141,37,10]; screenshots `sam3-props-*.png` in the hermes scratch.
+
+## Follow-up same day: the section now follows the Properties panel's own conventions (Jeremy: "why is it jumbled with doc properties look at how properties panel works!!!")
+
+First cut was wrong: it drew the section ABOVE the panel's header row with its own egui grid style, so it sat on top of the Document properties and read as one jumble. Fixed to how the panel actually composes:
+
+- Every Properties view draws its header first (layer header via `props_layout::header`, or the Document row inside `doc_props_ui::properties`), then sections. The Select Subject section is now drawn IMMEDIATELY AFTER that header in every view: `sam3_props()` call sites after the header in the mask, vector-mask and main layer branches of `properties_body_inner` (panels.rs), inside `doc_props_ui::properties` after the Document row, and in the Studio card after its layer header (or right after the title when no layer content matches). Each section's own separator (props_layout::section) provides the hairline, like Transform/Canvas.
+- Content rows now use the panel's field style: a right-aligned 44px dim label column ("Mode", "Text") then the control filling the rest (matches `doc_props_ui::field_label`); 12px text; four equal buttons with the accent-filled primary Apply.
+- `sam3_panel::properties` keeps only pre-existing tl! strings, so no catalog changes.
+
+Gates re-run after the restyle: sam3 tests 17 passed, clippy -D warnings clean, wasm check clean. Ported to devbuild, exe installed 15:1x (backup `photocraft-props-jumbled-20261012-*.exe`), live-verified: typing `eye` in the relocated field and pressing the button selects the eye, bounds [193, 96, 18, 9]. Note for future tests: the "Selected ..." status is cleared quickly by the selection-change event, so poll status at <=0.2s or assert on `document.inspect` selectionBounds instead.

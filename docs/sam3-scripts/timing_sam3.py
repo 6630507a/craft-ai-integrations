@@ -52,9 +52,10 @@ def graph(fn, prompts, mask):
 
 
 import sys
+from pathlib import Path
 from PIL import Image
 S = int(sys.argv[1]) if len(sys.argv) > 1 else 512
-_im = Image.open(r"C:\Users\jerem\AppData\Local\hermes\cache\scratch\astronaut.png").resize((S, S))
+_im = Image.open(Path.home() / "AppData" / "Local" / "hermes" / "cache" / "scratch" / "astronaut.png").resize((S, S))
 _b = io.BytesIO(); _im.save(_b, "PNG"); data = _b.getvalue()
 k = S / 512
 P = lambda x, y: (int(x * k), int(y * k))

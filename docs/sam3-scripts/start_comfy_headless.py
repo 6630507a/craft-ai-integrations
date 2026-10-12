@@ -5,7 +5,7 @@ import os
 import subprocess
 from pathlib import Path
 
-home = Path(r"C:\Users\jerem")
+home = Path.home()
 base = home / "Documents" / "ComfyUI"
 program = home / "AppData" / "Local" / "Programs" / "ComfyUI" / "resources" / "ComfyUI"
 config = home / "AppData" / "Roaming" / "ComfyUI" / "extra_models_config.yaml"

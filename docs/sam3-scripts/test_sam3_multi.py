@@ -2,7 +2,7 @@
 import json, socket, sys, time
 from pathlib import Path
 
-SCRATCH = Path(r"C:\Users\jerem\AppData\Local\hermes\cache\scratch")
+SCRATCH = Path.home() / "AppData" / "Local" / "hermes" / "cache" / "scratch"
 TOKEN = (SCRATCH / "photocraft-dev.token").read_text().strip()
 sock = socket.create_connection(("127.0.0.1", 7878), timeout=20)
 _ids = iter(range(1, 10000))
