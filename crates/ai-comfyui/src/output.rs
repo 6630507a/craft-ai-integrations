@@ -1,9 +1,11 @@
 //! Parse one declared output node and fetch its locally saved media.
 use crate::http::{Http, encode_query};
+use craft_ai_media::sniff;
 use craft_ai_model::job::{Event, Output};
 use craft_ai_model::payload::Payload;
 use craft_ai_model::{AiError, ErrorKind};
 use serde_json::Value;
+use std::io::Read;
 use std::path::Path;
 
 pub(crate) fn fetch(
@@ -89,6 +91,11 @@ pub(crate) fn fetch(
                 "workflow output is empty",
             ));
         }
+        let mut head = Vec::new();
+        std::fs::File::open(temp.path())
+            .and_then(|f| f.take(sniff::HEAD_LEN as u64).read_to_end(&mut head))
+            .map_err(|_| AiError::new(ErrorKind::Internal, "could not check media output"))?;
+        check_bytes(&head, media)?;
         temp.as_file()
             .sync_all()
             .map_err(|_| AiError::new(ErrorKind::Internal, "could not save media output"))?;
@@ -100,19 +107,34 @@ pub(crate) fn fetch(
             .map_err(|_| AiError::new(ErrorKind::Internal, "could not retain media output"))?;
         Payload::handle(&uri, media, Some(size))?
     } else {
-        let bytes = http.get_media(&path)?;
+        let bytes = http.get_media_limited(&path, max_bytes.min(32 * 1024 * 1024))?;
         if bytes.is_empty() {
             return Err(AiError::new(
                 ErrorKind::Provider,
                 "workflow output is empty",
             ));
         }
+        check_bytes(&bytes, media)?;
         Payload::inline(media, bytes)?
     };
     Ok(Event::Output(Output {
         payload,
         label: None,
     }))
+}
+
+/// The output must be the media its file name says, judged by its first bytes. A server that
+/// answers with an error page, a JSON body or another format is not handed on as an image.
+fn check_bytes(bytes: &[u8], expected: &str) -> Result<(), AiError> {
+    let head = bytes.get(..sniff::HEAD_LEN).unwrap_or(bytes);
+    if sniff::media_type(head).map(|(media, _)| media) == Some(expected) {
+        Ok(())
+    } else {
+        Err(AiError::new(
+            ErrorKind::Provider,
+            "workflow output is not the media its name says",
+        ))
+    }
 }
 
 fn safe_path(s: &str) -> bool {

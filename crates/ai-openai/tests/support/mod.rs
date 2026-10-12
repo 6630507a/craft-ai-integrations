@@ -43,6 +43,8 @@ pub enum Reply {
     Json(u16, String),
     JsonWith(u16, Vec<(&'static str, String)>, String),
     Sse(Vec<Step>),
+    /// A complete HTTP response, written as is (binary bodies, no Content-Length, and so on).
+    Raw(Vec<u8>),
 }
 
 pub struct Server {
@@ -154,6 +156,10 @@ fn serve(
     match handler(&req) {
         Reply::Json(status, body) => write_json(&mut stream, status, &[], &body),
         Reply::JsonWith(status, extra, body) => write_json(&mut stream, status, &extra, &body),
+        Reply::Raw(bytes) => {
+            let _ = stream.write_all(&bytes);
+            let _ = stream.flush();
+        }
         Reply::Sse(steps) => {
             let head =
                 "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n";
@@ -193,4 +199,19 @@ fn write_json(stream: &mut TcpStream, status: u16, extra: &[(&'static str, Strin
 /// One SSE data event.
 pub fn sse(json: &str) -> Step {
     Step::Send(format!("data: {json}\n\n"))
+}
+
+/// A complete response with a binary body and a correct Content-Length.
+pub fn http_bytes(status: u16, headers: &[(&str, &str)], body: &[u8]) -> Reply {
+    let mut out = format!(
+        "HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n",
+        body.len()
+    );
+    for (k, v) in headers {
+        out.push_str(&format!("{k}: {v}\r\n"));
+    }
+    out.push_str("\r\n");
+    let mut bytes = out.into_bytes();
+    bytes.extend_from_slice(body);
+    Reply::Raw(bytes)
 }

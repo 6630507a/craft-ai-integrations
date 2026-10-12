@@ -105,12 +105,26 @@ pub(crate) struct Completion {
 pub(crate) fn usage_from(v: &Value) -> Option<Usage> {
     let u = v.get("usage").filter(|u| u.is_object())?;
     let n = |keys: &[&str]| keys.iter().find_map(|k| u.get(*k).and_then(Value::as_u64));
+    // OpenRouter reports what a request cost, in credits (US dollars), as `usage.cost`. Whether the
+    // number can be believed depends on who sent it, so the caller keeps it only for OpenRouter
+    // (see `Http::trust_cost`); here it is read as a plain number.
+    let cost = u
+        .get("cost")
+        .and_then(Value::as_f64)
+        .filter(|c| c.is_finite() && (0.0..1.0e9).contains(c))
+        .map(dollars_to_micros);
     Some(Usage {
         input_units: n(&["prompt_tokens", "input_tokens"]),
         output_units: n(&["completion_tokens", "output_tokens"]),
-        cost_micros: None,
-        currency: None,
+        cost_micros: cost,
+        currency: cost.map(|_| "USD".to_owned()),
     })
+}
+
+/// Dollars to millionths, rounded. The caller has checked the range.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn dollars_to_micros(dollars: f64) -> u64 {
+    (dollars * 1_000_000.0).round() as u64
 }
 
 /// Reads a non-streamed `chat.completion` object.
@@ -332,6 +346,37 @@ mod tests {
         assert!(p.structured);
         assert!(p.body.get("api_key").is_none());
         assert!(p.body.get("base_url").is_none());
+    }
+
+    #[test]
+    fn openrouter_cost_is_read_as_exact_millionths_of_a_dollar() {
+        let usage = |cost: serde_json::Value| {
+            usage_from(&json!({"usage":{"prompt_tokens":1,"cost":cost}})).unwrap()
+        };
+        let u = usage(json!(0.00014));
+        assert_eq!(
+            (u.cost_micros, u.currency.as_deref()),
+            (Some(140), Some("USD"))
+        );
+        assert_eq!(usage(json!(0.95)).cost_micros, Some(950_000));
+        assert_eq!(usage(json!(0)).cost_micros, Some(0));
+        // Anything that is not a sane amount of money is not a cost.
+        for bad in [
+            json!(-1.0),
+            json!("0.5"),
+            json!(null),
+            json!(1.0e12),
+            json!(true),
+        ] {
+            let u = usage(bad.clone());
+            assert_eq!((u.cost_micros, u.currency), (None, None), "{bad}");
+        }
+        assert!(
+            usage_from(&json!({"usage":{"prompt_tokens":1}}))
+                .unwrap()
+                .cost_micros
+                .is_none()
+        );
     }
 
     #[test]

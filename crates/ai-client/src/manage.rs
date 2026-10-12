@@ -27,6 +27,11 @@ use craft_ai_native::shared::SharedStore;
 
 use crate::factory::ProviderFactory;
 
+mod probe;
+pub use probe::{
+    Confirmed, MAX_DECLARED, ModelChoice, ProbeReport, ProbedModel, Unconfirmed, declare_models,
+};
+
 /// Whether a connection's key is where it should be.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyState {
@@ -88,8 +93,12 @@ pub struct Removed {
 /// What a test found.
 #[derive(Clone, Debug)]
 pub struct TestReport {
+    /// The models the server offers. Empty for a custom connection, whose models are only what a
+    /// person declares (see `probe`).
     pub models: Vec<ModelInfo>,
     pub elapsed: Duration,
+    /// For a custom connection: what the test confirmed and could not confirm.
+    pub probe: Option<ProbeReport>,
 }
 
 /// Reads and writes the user's connections.
@@ -299,7 +308,9 @@ impl ConnectionManager {
             .ok_or_else(|| not_found(id))?;
         let secret = secret_for(self.secrets.as_ref(), &connection)?;
         let report = self.ask(connection, secret)?;
-        if remember {
+        // Only a list the server reported itself is remembered; a custom connection's models
+        // are the ones a person declared, and a test never replaces them with guesses.
+        if remember && report.probe.is_none() {
             let models = report.models.clone();
             self.shared.update(|file| {
                 if let Some(c) = file.connections.iter_mut().find(|c| &c.id == id) {
@@ -315,6 +326,15 @@ impl ConnectionManager {
         mut connection: Connection,
         secret: Option<craft_ai_model::SecretString>,
     ) -> Result<TestReport, AiError> {
+        if connection.provider == probe::CUSTOM_PROVIDER {
+            let start = Instant::now();
+            let probe = probe::run(&connection, secret)?;
+            return Ok(TestReport {
+                models: Vec::new(),
+                elapsed: start.elapsed(),
+                probe: Some(probe),
+            });
+        }
         // Saved models would be answered from the list, not the server.
         connection.models.clear();
         let provider = self.probe.build(&connection, secret)?;
@@ -323,6 +343,7 @@ impl ConnectionManager {
         Ok(TestReport {
             models,
             elapsed: start.elapsed(),
+            probe: None,
         })
     }
 }

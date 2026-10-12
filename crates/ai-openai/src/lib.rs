@@ -50,6 +50,8 @@ mod chat;
 mod http;
 mod images;
 mod jobs;
+mod meta;
+pub mod probe;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -71,6 +73,9 @@ pub struct OpenAiConfig {
     pub base_url: String,
     /// Bearer key. `None` for local servers that need none.
     pub api_key: Option<SecretString>,
+    /// Header that carries the key, for a server that does not take `Authorization: Bearer`.
+    /// The key is then the header's whole value. `None` is the bearer default.
+    pub key_header: Option<String>,
     /// Use these models instead of asking the server and guessing from ids.
     pub models: Option<Vec<ModelInfo>>,
     pub connect_timeout: Duration,
@@ -85,6 +90,7 @@ impl OpenAiConfig {
         Self {
             base_url: base_url.into(),
             api_key: None,
+            key_header: None,
             models: None,
             connect_timeout: Duration::from_secs(10),
             request_timeout: Duration::from_secs(600),
@@ -94,6 +100,11 @@ impl OpenAiConfig {
 
     pub fn with_key(mut self, key: SecretString) -> Self {
         self.api_key = Some(key);
+        self
+    }
+
+    pub fn with_key_header(mut self, name: impl Into<String>) -> Self {
+        self.key_header = Some(name.into());
         self
     }
 
@@ -132,7 +143,8 @@ impl OpenAiProvider {
             config.api_key,
             config.connect_timeout,
             config.request_timeout,
-        );
+        )
+        .with_key_header(config.key_header);
         Ok(Self {
             http: Arc::new(http),
             models: config.models,
@@ -155,13 +167,20 @@ impl Provider for OpenAiProvider {
             return Ok(list.clone());
         }
         let v = self.http.get_json("/models")?;
+        let openrouter = self.http.is_openrouter();
         let mut found: Vec<ModelInfo> = v
             .get("data")
             .and_then(serde_json::Value::as_array)
             .into_iter()
             .flatten()
-            .filter_map(|m| m.get("id").and_then(serde_json::Value::as_str))
-            .filter_map(catalog::classify)
+            .filter_map(|entry| {
+                let id = entry.get("id").and_then(serde_json::Value::as_str)?;
+                let mut info = catalog::classify(id)?;
+                if openrouter {
+                    meta::add_openrouter_meta(&mut info, entry);
+                }
+                Some(info)
+            })
             .collect();
         found.sort_by(|a, b| a.id.as_str().cmp(b.id.as_str()));
         found.dedup_by(|a, b| a.id == b.id);

@@ -43,12 +43,16 @@
 
 mod client;
 mod factory;
+mod history;
 mod manage;
 mod runner;
+mod tools;
 
-pub use client::{AiClient, Choice, Finished, Job, Plan, RoleReady, RoleStatus};
+pub use client::{AiClient, Choice, Finished, Job, PickedChoice, Plan, RoleReady, RoleStatus};
 pub use factory::{BuildFn, ProviderFactory};
 pub use manage::{
-    ConnectionManager, ConnectionView, KeyState, Removed, SaveError, Saved, TestReport,
+    Confirmed, ConnectionManager, ConnectionView, KeyState, MAX_DECLARED, ModelChoice, ProbeReport,
+    ProbedModel, Removed, SaveError, Saved, TestReport, Unconfirmed, declare_models,
 };
 pub use runner::{TestRunner, TestTarget};
+pub use tools::{SampleReport, TestStart, ToolDesk, ToolView};

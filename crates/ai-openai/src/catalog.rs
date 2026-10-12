@@ -123,6 +123,74 @@ pub(crate) fn needs_response_format(id: &str) -> bool {
     id.to_ascii_lowercase().starts_with("dall-e")
 }
 
+/// What a person can declare a model of a custom server does. Each is the plain, least
+/// demanding form of the ability: no streaming, tools or structured output, one picture per
+/// request, no reference images. Nothing is offered that was not declared.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Kind {
+    Chat,
+    ImageGenerate,
+    ImageEdit,
+    ImageInpaint,
+}
+
+/// A model with exactly the abilities in `kinds` (repeats ignored, listed in a fixed order), or
+/// `None` if `id` cannot be a model id here or no kind was given.
+pub fn declare(id: &str, kinds: &[Kind]) -> Option<ModelInfo> {
+    let model_id = ModelId::new(id).ok()?;
+    let mut kinds = kinds.to_vec();
+    kinds.sort();
+    kinds.dedup();
+    let specs: Vec<CapabilitySpec> = kinds
+        .iter()
+        .filter_map(|kind| match kind {
+            Kind::Chat => plain_text_spec(),
+            Kind::ImageGenerate => generate_spec(1),
+            Kind::ImageEdit => edit_spec("image.edit", 1, 0),
+            Kind::ImageInpaint => edit_spec("image.inpaint", 1, 0),
+        })
+        .collect();
+    if specs.is_empty() || specs.len() != kinds.len() {
+        return None;
+    }
+    Some(
+        specs
+            .into_iter()
+            .fold(ModelInfo::new(model_id, id), ModelInfo::with),
+    )
+}
+
+/// What the id suggests, as a starting point for a person to confirm or change. A guess from a
+/// name; it proves nothing about the server.
+pub fn suggest(id: &str) -> Vec<Kind> {
+    let Some(info) = classify(id) else {
+        return Vec::new();
+    };
+    let mut kinds: Vec<Kind> = info
+        .capabilities
+        .iter()
+        .filter_map(|s| match s.capability.as_str() {
+            "text.complete" => Some(Kind::Chat),
+            "image.generate" => Some(Kind::ImageGenerate),
+            "image.edit" => Some(Kind::ImageEdit),
+            "image.inpaint" => Some(Kind::ImageInpaint),
+            _ => None,
+        })
+        .collect();
+    kinds.sort();
+    kinds
+}
+
+fn plain_text_spec() -> Option<CapabilitySpec> {
+    Some(
+        spec("text.complete")?
+            .accepting(InputRole::Prompt, 64)
+            .requiring(InputRole::Prompt)
+            .accepting(InputRole::Context, 64)
+            .accepting(InputRole::System, 1),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

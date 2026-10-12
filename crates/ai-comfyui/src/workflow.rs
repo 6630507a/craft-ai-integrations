@@ -336,11 +336,12 @@ impl Workflow {
                         if role == InputRole::Source
                             && media_type.as_str() == "image/jpeg"
                             && data.starts_with(b"\xff\xd8\xff") => {}
-                    Payload::Handle(_) => {
-                        return Err(AiError::unsupported(
-                            "ComfyUI image handles are not supported yet",
-                        ));
-                    }
+                    // Only the declared type is known without reading the file; its bytes are
+                    // checked when it is uploaded.
+                    Payload::Handle(h)
+                        if h.media_type.as_str() == "image/png"
+                            || (role == InputRole::Source
+                                && h.media_type.as_str() == "image/jpeg") => {}
                     _ => {
                         return Err(AiError::invalid(format!(
                             "{role} needs a PNG image (source also accepts JPEG)"

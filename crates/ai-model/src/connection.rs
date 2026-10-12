@@ -77,10 +77,65 @@ pub struct Connection {
     pub models: Vec<ModelInfo>,
     #[serde(default = "yes")]
     pub enabled: bool,
+    /// Header that carries the key, for a server that does not use `Authorization: Bearer`.
+    /// `None` is the bearer default. The key is sent as the header's whole value. See
+    /// [`check_key_header`] for the names allowed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_header: Option<String>,
 }
 
 fn yes() -> bool {
     true
+}
+
+/// Longest header name accepted for a key.
+pub const MAX_KEY_HEADER_BYTES: usize = 64;
+
+/// Names a key must never be sent under: they steer the transport itself, or name a different
+/// credential, or are what the default already does.
+const RESERVED_HEADERS: &[&str] = &[
+    "authorization",
+    "host",
+    "content-length",
+    "content-type",
+    "content-encoding",
+    "transfer-encoding",
+    "connection",
+    "cookie",
+    "set-cookie",
+    "upgrade",
+    "te",
+    "trailer",
+    "expect",
+    "user-agent",
+    "accept",
+];
+
+/// Whether `name` may carry a key. A short HTTP token (letters, digits and `-_.`), not one of the
+/// transport's own headers and not a proxy header. Leave the name empty (`None`) for
+/// `Authorization: Bearer`.
+pub fn check_key_header(name: &str) -> Result<(), &'static str> {
+    if name.is_empty() || name.len() > MAX_KEY_HEADER_BYTES {
+        return Err("a header name is 1 to 64 characters");
+    }
+    if !name
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+    {
+        return Err("a header name uses only letters, digits, - _ and .");
+    }
+    let lower = name.to_ascii_lowercase();
+    if lower.starts_with("proxy-") || lower.starts_with("sec-") {
+        return Err("that header belongs to the network, not to a key");
+    }
+    if RESERVED_HEADERS.contains(&lower.as_str()) {
+        return Err(if lower == "authorization" {
+            "leave the name empty to send the key as Authorization: Bearer"
+        } else {
+            "that header cannot carry a key"
+        });
+    }
+    Ok(())
 }
 
 /// Why a connection was refused.
@@ -96,6 +151,8 @@ pub enum ConnectionError {
     LocalWithoutEndpointNeedsNoAuth,
     EmptyLabel,
     DuplicateModel(String),
+    /// A key header name that is not allowed, or a header named for a connection with no key.
+    KeyHeader(&'static str),
 }
 
 impl std::fmt::Display for ConnectionError {
@@ -114,6 +171,7 @@ impl std::fmt::Display for ConnectionError {
             ),
             Self::EmptyLabel => f.write_str("label is empty"),
             Self::DuplicateModel(m) => write!(f, "model {m} is listed twice"),
+            Self::KeyHeader(why) => write!(f, "key header: {why}"),
         }
     }
 }
@@ -147,6 +205,14 @@ impl Connection {
                 }
             }
         }
+        if let Some(name) = &self.key_header {
+            check_key_header(name).map_err(ConnectionError::KeyHeader)?;
+            if self.auth.secret_ref().is_none() {
+                return Err(ConnectionError::KeyHeader(
+                    "a header name needs a connection that uses a key",
+                ));
+            }
+        }
         for (i, m) in self.models.iter().enumerate() {
             if self.models.iter().skip(i + 1).any(|o| o.id == m.id) {
                 return Err(ConnectionError::DuplicateModel(m.id.to_string()));
@@ -177,6 +243,7 @@ pub(crate) mod fixtures {
             billing: Billing::Metered,
             models: Vec::new(),
             enabled: true,
+            key_header: None,
         }
     }
 

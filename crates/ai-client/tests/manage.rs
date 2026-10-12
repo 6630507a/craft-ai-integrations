@@ -620,18 +620,8 @@ fn vertex_express_key_is_saved_without_claiming_a_free_probe() {
 }
 
 #[test]
-fn sam3_preset_checks_a_real_local_health_endpoint() {
-    let r = rig();
-    let s = Server::start(|req| {
-        assert_eq!(req.path, "/v1/health");
-        Reply::Json(200, r#"{"model":"sam3","ready":true}"#.into())
-    });
-    let mut d = preset("sam3");
-    d.endpoint = s.url;
-    r.manager.save(&d).unwrap();
-    let report = r.manager.test_saved(&id("sam-3-local"), true).unwrap();
-    assert_eq!(
-        report.models[0].capabilities[0].capability.as_str(),
-        "image.detect"
-    );
+fn sam3_is_not_a_generic_url_preset_it_is_a_local_recipe_through_comfyui() {
+    // The URL preset was removed on purpose: SAM 3 runs through ComfyUI, and the Features screen
+    // sets it up. A preset here would advertise a connection that cannot do the job.
+    assert!(PRESETS.iter().all(|p| p.key != "sam3"));
 }

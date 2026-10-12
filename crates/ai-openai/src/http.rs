@@ -10,7 +10,7 @@ use std::io::Read;
 use std::time::Duration;
 
 use craft_ai_model::secret::redact;
-use craft_ai_model::{AiError, ErrorKind, SecretString};
+use craft_ai_model::{AiError, ErrorKind, SecretString, Usage};
 use serde_json::Value;
 use ureq::Body;
 use ureq::http::Response;
@@ -24,6 +24,8 @@ pub(crate) struct Http {
     agent: ureq::Agent,
     base: String,
     key: Option<SecretString>,
+    /// Header that carries the key; `None` is `Authorization: Bearer`.
+    key_header: Option<String>,
 }
 
 impl Http {
@@ -45,24 +47,55 @@ impl Http {
             agent: ureq::Agent::new_with_config(config),
             base,
             key,
+            key_header: None,
         }
+    }
+
+    /// Sends the key as the bare value of this header instead of as a bearer token.
+    pub fn with_key_header(mut self, name: Option<String>) -> Self {
+        self.key_header = name;
+        self
+    }
+
+    /// Whether this is OpenRouter's own address, the only server whose `/models` prices are read.
+    pub fn is_openrouter(&self) -> bool {
+        is_openrouter(&self.base)
+    }
+
+    /// Keeps a cost the server reported only if the server is OpenRouter, whose `usage.cost` is
+    /// documented as credits in US dollars. Any other server's `cost` field could mean anything,
+    /// so it is dropped rather than shown as money.
+    pub fn trust_cost(&self, usage: Option<Usage>) -> Option<Usage> {
+        usage.map(|mut u| {
+            if !is_openrouter(&self.base) {
+                u.cost_micros = None;
+                u.currency = None;
+            }
+            u
+        })
     }
 
     fn url(&self, path: &str) -> String {
         format!("{}{}", self.base, path)
     }
 
-    fn bearer(&self) -> Option<String> {
-        self.key
-            .as_ref()
-            .filter(|k| !k.is_empty())
-            .map(|k| format!("Bearer {}", k.expose()))
+    /// The header that carries the key, and its value. Only ever added to a request for this
+    /// connection's own base address; redirects are not followed.
+    fn credential(&self) -> Option<(String, String)> {
+        let key = self.key.as_ref().filter(|k| !k.is_empty())?;
+        Some(match &self.key_header {
+            Some(name) => (name.clone(), key.expose().to_owned()),
+            None => (
+                "Authorization".to_owned(),
+                format!("Bearer {}", key.expose()),
+            ),
+        })
     }
 
     pub fn get_json(&self, path: &str) -> Result<Value, AiError> {
         let mut req = self.agent.get(self.url(path));
-        if let Some(b) = self.bearer() {
-            req = req.header("Authorization", b);
+        if let Some((name, value)) = self.credential() {
+            req = req.header(name, value);
         }
         let resp = self.checked(req.call())?;
         self.read_json(resp)
@@ -75,8 +108,8 @@ impl Http {
         body: &[u8],
     ) -> Result<Response<Body>, AiError> {
         let mut req = self.agent.post(self.url(path)).content_type(content_type);
-        if let Some(b) = self.bearer() {
-            req = req.header("Authorization", b);
+        if let Some((name, value)) = self.credential() {
+            req = req.header(name, value);
         }
         self.checked(req.send(body))
     }
@@ -135,6 +168,13 @@ impl Http {
     pub fn scrub(&self, e: AiError) -> AiError {
         scrub(e, self.key.as_ref())
     }
+}
+
+/// Whether `base` is OpenRouter's own https address (the host must match exactly).
+pub(crate) fn is_openrouter(base: &str) -> bool {
+    base.strip_prefix("https://")
+        .and_then(|rest| rest.split(['/', '?', '#']).next())
+        .is_some_and(|host| host == "openrouter.ai")
 }
 
 pub(crate) fn scrub(mut e: AiError, key: Option<&SecretString>) -> AiError {
@@ -201,6 +241,63 @@ pub(crate) fn map_status(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_openrouters_own_https_address_is_trusted_for_cost() {
+        for yes in [
+            "https://openrouter.ai/api/v1",
+            "https://openrouter.ai",
+            "https://openrouter.ai?x=1",
+        ] {
+            assert!(is_openrouter(yes), "{yes}");
+        }
+        for no in [
+            "http://openrouter.ai/api/v1",
+            "https://openrouter.ai.evil.com/v1",
+            "https://evil.com/openrouter.ai/v1",
+            "https://notopenrouter.ai/v1",
+            "https://user@openrouter.ai/v1",
+            "http://127.0.0.1:11434/v1",
+            "",
+        ] {
+            assert!(!is_openrouter(no), "{no}");
+        }
+    }
+
+    #[test]
+    fn a_cost_survives_for_openrouter_and_is_dropped_elsewhere() {
+        let usage = || {
+            Some(Usage {
+                input_units: Some(1),
+                output_units: None,
+                cost_micros: Some(5),
+                currency: Some("USD".into()),
+            })
+        };
+        let http = |base: &str| {
+            Http::new(
+                base.to_owned(),
+                None,
+                Duration::from_secs(1),
+                Duration::from_secs(1),
+            )
+        };
+        assert_eq!(
+            http("https://openrouter.ai/api/v1")
+                .trust_cost(usage())
+                .unwrap()
+                .cost_micros,
+            Some(5)
+        );
+        let other = http("http://localhost:1234/v1")
+            .trust_cost(usage())
+            .unwrap();
+        assert_eq!(
+            (other.cost_micros, other.currency, other.input_units),
+            (None, None, Some(1))
+        );
+        assert!(http("http://localhost:1234/v1").trust_cost(None).is_none());
+    }
 
     fn body(msg: &str, code: &str) -> String {
         format!(r#"{{"error":{{"message":"{msg}","code":"{code}"}}}}"#)

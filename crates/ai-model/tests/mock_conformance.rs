@@ -179,6 +179,7 @@ fn an_app_flow_from_store_to_finished_job() {
         billing: Billing::Metered,
         models: vec![image_model(), text_model()],
         enabled: true,
+        key_header: None,
     };
     let fill = Role {
         id: RoleId::new("generative-fill").unwrap(),
