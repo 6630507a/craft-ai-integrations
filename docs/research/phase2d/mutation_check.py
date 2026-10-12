@@ -244,7 +244,32 @@ P4 = [
     ('input-jpeg-mask-accepted', CF_FLOW, MASK_JPEG_OLD, MASK_JPEG_NEW, CF, 'media_checks', 'mask_must_be_a_png'),
 ]
 
-GROUPS = {'u1': U1, 'u3': U3, 'u4': U4, 'p4': P4}
+MEDIA = C + 'ai-media/src/store.rs'
+CM = 'craft-ai-media'
+RETRY_GATE = 'if !error.is_retryable() || attempt >= self.config.max_attempts {'
+# p10: a busy media host is tried again, a refused link is not, and the pauses are bounded
+# (crates/ai-media). Each mutant runs only the test that should notice it, so none can hang on a
+# real hour-long pause.
+P10 = [
+    ('retry-never', MEDIA, RETRY_GATE, 'if true {', CM, 'retry', 'tried_again_until'),
+    ('retry-everything', MEDIA, RETRY_GATE, 'if attempt >= self.config.max_attempts {', CM, 'retry', 'will_not_get_better'),
+    ('one-try-too-many', MEDIA, RETRY_GATE, 'if !error.is_retryable() || attempt > self.config.max_attempts {', CM, 'retry', 'number_of_tries'),
+    ('tries-clamped-too-high', MEDIA, 'max_attempts: config.max_attempts.clamp(1, 5),', 'max_attempts: config.max_attempts.clamp(1, 50),', CM, 'retry', 'number_of_tries'),
+    ('tries-clamped-too-low', MEDIA, 'max_attempts: config.max_attempts.clamp(1, 5),', 'max_attempts: config.max_attempts.clamp(2, 5),', CM, 'retry', 'number_of_tries'),
+    ('pause-constant', MEDIA, '.saturating_mul(1 << (attempt - 1));', '.saturating_mul(1);', CM, 'retry', 'pause_doubles'),
+    ('pause-none', MEDIA, 'let backoff = self.config.retry_delay.saturating_mul(1 << (attempt - 1));', 'let backoff = Duration::ZERO;', CM, 'retry', 'pause_doubles'),
+    ('retry-after-ignored', MEDIA, '.map_or(backoff, |secs| backoff.max(Duration::from_secs(secs)));', '.map_or(backoff, |_| backoff);', CM, 'retry', 'asks_for_a_long_wait'),
+    ('budget-ignores-the-pause', MEDIA, 'if started.elapsed().saturating_add(wait) > self.config.retry_budget {', 'if started.elapsed() > self.config.retry_budget {', CM, 'retry', 'overrun_the_budget'),
+    ('budget-loosened', MEDIA, 'if started.elapsed().saturating_add(wait) > self.config.retry_budget {', 'if started.elapsed().saturating_add(wait) > self.config.retry_budget.saturating_mul(1000) {', CM, 'retry', 'overrun_the_budget'),
+    ('gateway-timeout-not-retried', MEDIA, 'matches!(status, 408 | 500 | 502 | 503 | 504)', 'matches!(status, 408 | 500 | 502 | 503)', CM, 'retry', 'tried_again_until'),
+    ('request-timeout-not-retried', MEDIA, 'matches!(status, 408 | 500 | 502 | 503 | 504)', 'matches!(status, 500 | 502 | 503 | 504)', CM, 'retry', 'tried_again_until'),
+    ('slow-down-not-retried', MEDIA, 'if status == 429 {', 'if false {', CM, 'retry', 'says_slow_down'),
+    ('retry-after-not-kept', MEDIA, 'let retry_after = error.retry_after_secs;', 'let retry_after: Option<u64> = None;', CM, 'retry', 'last_answer'),
+    ('tries-not-reported', MEDIA, 'if attempts <= 1 {', 'if true {', CM, 'retry', 'number_of_tries'),
+    ('cut-transfer-not-retried', MEDIA, '.map_err(|_| AiError::new(ErrorKind::Network, "media transfer failed"))?;', '.map_err(|_| AiError::new(ErrorKind::Provider, "media transfer failed"))?;', CM, 'retry', 'cut_transfer'),
+]
+
+GROUPS = {'u1': U1, 'u3': U3, 'u4': U4, 'p4': P4, 'p10': P10}
 # Mutants whose effect is also refused by a second, independent check on this machine. They are
 # recorded as equivalent here, with the reason, and are never counted as caught.
 EQUIVALENT = {

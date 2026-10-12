@@ -62,6 +62,8 @@ fn origin(server: &Server) -> String {
 fn config(dir: &Path) -> MediaStoreConfig {
     let mut cfg = MediaStoreConfig::new(dir);
     cfg.allow_loopback = true;
+    cfg.retry_delay = std::time::Duration::ZERO;
+    cfg.max_attempts = 1;
     cfg
 }
 
