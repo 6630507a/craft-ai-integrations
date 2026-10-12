@@ -9,6 +9,7 @@
     clippy::unreachable
 )]
 mod http;
+mod input;
 mod library;
 mod output;
 mod provider;

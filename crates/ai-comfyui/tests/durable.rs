@@ -7,7 +7,9 @@ use craft_ai_model::model::InputRole;
 use craft_ai_model::payload::Payload;
 use craft_ai_model::{JobState, ModelId, Provider, Request};
 use serde_json::json;
-use support::{Reply, Server};
+use support::{Reply, Server, http_bytes};
+
+const VIDEO: &[u8] = b"\0\0\0\x18ftypisom video bytes";
 
 fn workflow() -> Workflow {
     Workflow::import(
@@ -23,7 +25,7 @@ fn workflow() -> Workflow {
     .unwrap()
 }
 
-fn server(output: &'static str) -> Server {
+fn server(output: &'static [u8]) -> Server {
     Server::start(move |r| match r.path.as_str() {
         "/object_info" => Reply::Json(
             200,
@@ -43,7 +45,7 @@ fn server(output: &'static str) -> Server {
             })
             .to_string(),
         ),
-        "/view?filename=movie.mp4&type=output" => Reply::Json(200, output.into()),
+        "/view?filename=movie.mp4&type=output" => http_bytes(200, &[], output),
         _ => Reply::Json(404, "{}".into()),
     })
 }
@@ -61,7 +63,7 @@ fn run(config: ComfyConfig) -> craft_ai_model::job::JobSnapshot {
 #[test]
 fn completed_video_is_saved_as_a_durable_local_handle() {
     let dir = tempfile::tempdir().unwrap();
-    let server = server("video bytes");
+    let server = server(VIDEO);
     let result =
         run(ComfyConfig::new(server.url.trim_end_matches("/v1")).with_output_dir(dir.path()));
     assert_eq!(result.state, JobState::Succeeded);
@@ -70,12 +72,12 @@ fn completed_video_is_saved_as_a_durable_local_handle() {
         panic!("expected a local file handle")
     };
     assert_eq!(handle.media_type.as_str(), "video/mp4");
-    assert_eq!(handle.size_bytes, Some(11));
+    assert_eq!(handle.size_bytes, Some(VIDEO.len() as u64));
     let path = url::Url::parse(&handle.uri)
         .unwrap()
         .to_file_path()
         .unwrap();
-    assert_eq!(std::fs::read(path).unwrap(), b"video bytes");
+    assert_eq!(std::fs::read(path).unwrap(), VIDEO);
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
 }
 
@@ -118,7 +120,7 @@ fn redirected_output_is_not_fetched_or_persisted() {
 #[test]
 fn oversized_output_fails_without_leaving_a_partial_asset() {
     let dir = tempfile::tempdir().unwrap();
-    let server = server("video bytes");
+    let server = server(VIDEO);
     let result = run(ComfyConfig::new(server.url.trim_end_matches("/v1"))
         .with_output_dir(dir.path())
         .with_max_output_bytes(5));

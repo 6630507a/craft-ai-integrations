@@ -15,7 +15,9 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-mod sniff;
+/// Media identified by its first bytes; shared with the adapters that check what they send or
+/// receive.
+pub mod sniff;
 mod store;
 mod url_rules;
 

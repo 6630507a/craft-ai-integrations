@@ -709,6 +709,7 @@ name = "craft-ai-comfyui"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "craft-ai-media",
  "craft-ai-model",
  "craft-ai-native",
  "png 0.17.16",

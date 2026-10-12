@@ -208,10 +208,47 @@ U4 = [
     ('download-body-unbounded', DOWNLOAD, 'if bytes.len() as u64 > max_bytes {', 'if false {', E, 'download_sources', 'only_up_to_its_limit'),
 ]
 
-GROUPS = {'u1': U1, 'u3': U3, 'u4': U4}
+CF = 'craft-ai-comfyui'
+CF_OUT = C + 'ai-comfyui/src/output.rs'
+CF_IN = C + 'ai-comfyui/src/input.rs'
+CF_PROV = C + 'ai-comfyui/src/provider.rs'
+CF_FLOW = C + 'ai-comfyui/src/workflow.rs'
+UPLOAD_ORDER_OLD = """let source = self.read_role(request, InputRole::Source)?;
+            let mask = self.read_role(request, InputRole::Mask)?;
+            let source = self.upload(InputRole::Source, &source)?;
+            let mask = self.upload(InputRole::Mask, &mask)?;"""
+UPLOAD_ORDER_NEW = """let source = self.read_role(request, InputRole::Source)?;
+            let source = self.upload(InputRole::Source, &source)?;
+            let mask = self.read_role(request, InputRole::Mask)?;
+            let mask = self.upload(InputRole::Mask, &mask)?;"""
+MASK_JPEG_OLD = """|| (role == InputRole::Source
+                                && h.media_type.as_str() == "image/jpeg") => {}"""
+MASK_JPEG_NEW = """|| h.media_type.as_str() == "image/jpeg" => {}"""
+# p4: media going to and coming from ComfyUI is judged by its bytes (crates/ai-comfyui).
+P4 = [
+    ('output-not-checked', CF_OUT, 'if sniff::media_type(head).map(|(media, _)| media) == Some(expected) {', 'if true {', CF, 'media_checks', 'an_output_that_is'),
+    ('output-any-media-accepted', CF_OUT, 'if sniff::media_type(head).map(|(media, _)| media) == Some(expected) {', 'if sniff::media_type(head).is_some() {', CF, 'media_checks', 'an_output_that_is'),
+    ('output-on-disk-not-checked', CF_OUT, 'check_bytes(&head, media)?;', 'let _ = (&head, media);', CF, 'media_checks', 'an_output_that_is'),
+    ('output-inline-not-checked', CF_OUT, 'check_bytes(&bytes, media)?;', 'let _ = (&bytes, media);', CF, 'media_checks', 'an_output_that_is'),
+    ('input-not-checked', CF_IN, 'if sniff::media_type(head).map(|(media, _)| media) != Some(declared) {', 'if false {', CF, 'media_checks', 'never_uploaded'),
+    ('input-any-image-accepted', CF_IN, 'if sniff::media_type(head).map(|(media, _)| media) != Some(declared) {', 'if sniff::media_type(head).is_none() {', CF, 'media_checks', 'never_uploaded'),
+    ('input-size-unchecked', CF_IN, 'if u64::try_from(data.len()).unwrap_or(u64::MAX) > max {', 'if false {', CF, 'media_checks', 'over_the_limit'),
+    ('input-limit-ignored', CF_PROV, 'self.max_upload_bytes = bytes.clamp(1, crate::input::HARD_MAX_UPLOAD_BYTES);', 'let _ = bytes;', CF, 'media_checks', 'over_the_limit'),
+    ('input-limit-not-passed-on', CF_PROV, 'crate::input::read_image(&input.payload, self.max_upload_bytes)', 'crate::input::read_image(&input.payload, crate::input::DEFAULT_MAX_UPLOAD_BYTES)', CF, 'media_checks', 'over_the_limit'),
+    ('input-web-address-read', CF_IN, 'if url.scheme() != "file" {', 'if false {', CF, 'media_checks', 'only_plain_local'),
+    ('input-other-machine-read', CF_IN, 'if !matches!(url.host_str(), None | Some("" | "localhost")) {', 'if false {', CF, 'media_checks', 'only_plain_local'),
+    ('input-folder-read', CF_IN, 'if !meta.is_file() {', 'if false {', CF, 'media_checks', 'only_plain_local'),
+    ('input-file-size-looked-at-late', CF_IN, 'if meta.len() > max {', 'if false {', CF, 'lib', 'a_file_over_the_limit'),
+    ('input-file-read-unbounded', CF_IN, 'reader.take(max.saturating_add(1))', 'reader.take(u64::MAX)', CF, 'lib', 'a_reader_is_read_no_further'),
+    ('input-sent-before-all-checked', CF_PROV, UPLOAD_ORDER_OLD, UPLOAD_ORDER_NEW, CF, 'media_checks', 'never_uploaded'),
+    ('input-jpeg-mask-accepted', CF_FLOW, MASK_JPEG_OLD, MASK_JPEG_NEW, CF, 'media_checks', 'mask_must_be_a_png'),
+]
+
+GROUPS = {'u1': U1, 'u3': U3, 'u4': U4, 'p4': P4}
 # Mutants whose effect is also refused by a second, independent check on this machine. They are
 # recorded as equivalent here, with the reason, and are never counted as caught.
 EQUIVALENT = {
+    'input-folder-read': 'a directory cannot be opened on Windows, and where it can be opened reading it fails with the same message; the check exists for pipes and devices, which cannot be made here (not proven on Linux or macOS)',
     'directory-taken-as-local-file': 'on Windows a directory reports length 0, which the size check also refuses; elsewhere the is_file check is what refuses it',
 }
 TIMEOUTS = {}
@@ -242,7 +279,9 @@ def main():
         newline = '\r\n' if b'\r\n' in original else '\n'
         try:
             path.write_bytes(text.replace(old, new).replace('\n', newline).encode('utf-8'))
-            command = ['cargo', 'test', '-p', package, '--test', target, test, '-j', '8']
+            # target 'lib' runs the crate's own unit tests instead of an integration test file.
+            where = ['--lib'] if target == 'lib' else ['--test', target]
+            command = ['cargo', 'test', '-p', package, *where, test, '-j', '8']
             proc = subprocess.Popen(command, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             timed_out = False
             try:

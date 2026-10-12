@@ -129,8 +129,10 @@ records backend capabilities and limits, not a promise that every audited featur
    shared across processes, freed if the holder crashes), revisions that mark stale results, and
    cancellation that touches only the request's own prompt. All live-verified. No UI until the
    crate path works.
-3. **p4/p10:** bounded file-handle uploads and generic output content verification, durable assets
-   and long-job reliability. A saved link is not a retained asset; an input handle is not an upload.
+3. **p4/p10:** durable assets and long-job reliability. Built for the local ComfyUI adapter: outputs
+   and source/mask inputs are checked by their bytes, and inputs may be bounded local file handles
+   (scripted tests only). Open: retries and backoff, input handles for the hosted adapters, expiry
+   tracking. A saved link is not a retained asset; an input handle is not an upload.
 4. **p5/p7/p8:** real source/reference/edit inputs for the distinct ArtCraft, Vertex and BFL API
    families, with scripted conformance first and live hosted tests only when authorised.
 5. **u1 to u5 (added 12/10/2026):** custom connections to unlisted providers (u1) and user-chosen

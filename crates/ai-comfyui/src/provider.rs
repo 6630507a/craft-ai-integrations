@@ -6,7 +6,6 @@ use crate::output;
 use craft_ai_model::endpoint::Endpoint;
 use craft_ai_model::job::{JobSnapshot, JobState};
 use craft_ai_model::model::InputRole;
-use craft_ai_model::payload::Payload;
 use craft_ai_model::{AiError, ErrorKind, JobId, ModelId, ModelInfo, Provider, Request};
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -21,6 +20,9 @@ pub struct ComfyConfig {
     pub output_dir: Option<PathBuf>,
     /// Download cap in bytes when output_dir is set (default and maximum 1 GiB).
     pub max_output_bytes: u64,
+    /// Largest source or mask image sent to ComfyUI, whether it arrives inline or as a file handle
+    /// (default 32 MiB, never more than 256 MiB).
+    pub max_upload_bytes: u64,
     /// Only opt in after confirming this server implements prompt-id-scoped /interrupt.
     pub targeted_interrupt: bool,
     /// Connection timeout for the HTTP agent (default 3 s).
@@ -36,6 +38,7 @@ impl ComfyConfig {
             workflows: Vec::new(),
             output_dir: None,
             max_output_bytes: 1024 * 1024 * 1024,
+            max_upload_bytes: crate::input::DEFAULT_MAX_UPLOAD_BYTES,
             targeted_interrupt: false,
             connect_timeout: Duration::from_secs(3),
             request_timeout: Duration::from_secs(10),
@@ -54,6 +57,11 @@ impl ComfyConfig {
     /// Limit persisted downloads to at most 1 GiB, never zero bytes.
     pub fn with_max_output_bytes(mut self, bytes: u64) -> Self {
         self.max_output_bytes = bytes.clamp(1, 1024 * 1024 * 1024);
+        self
+    }
+    /// Limit one uploaded source or mask image, never zero bytes and never over 256 MiB.
+    pub fn with_max_upload_bytes(mut self, bytes: u64) -> Self {
+        self.max_upload_bytes = bytes.clamp(1, crate::input::HARD_MAX_UPLOAD_BYTES);
         self
     }
     pub fn with_workflow(mut self, workflow: Workflow) -> Self {
@@ -75,6 +83,7 @@ pub struct ComfyProvider {
     workflows: Vec<Workflow>,
     output_dir: Option<PathBuf>,
     max_output_bytes: u64,
+    max_upload_bytes: u64,
     targeted_interrupt: bool,
     jobs: Mutex<Vec<Job>>,
 }
@@ -111,6 +120,9 @@ impl ComfyProvider {
             workflows: config.workflows,
             output_dir: config.output_dir,
             max_output_bytes: config.max_output_bytes.clamp(1, 1024 * 1024 * 1024),
+            max_upload_bytes: config
+                .max_upload_bytes
+                .clamp(1, crate::input::HARD_MAX_UPLOAD_BYTES),
             targeted_interrupt: config.targeted_interrupt,
             jobs: Mutex::new(Vec::new()),
         })
@@ -119,19 +131,23 @@ impl ComfyProvider {
         self.jobs.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn upload_role(&self, request: &Request, role: InputRole) -> Result<String, AiError> {
+    /// Reads and checks one input image. Nothing is sent yet.
+    fn read_role(
+        &self,
+        request: &Request,
+        role: InputRole,
+    ) -> Result<crate::input::Image, AiError> {
         let input = request
             .inputs
             .iter()
             .find(|i| i.role == role)
             .ok_or_else(|| AiError::invalid(format!("missing {role} input")))?;
-        let Payload::Inline { media_type, data } = &input.payload else {
-            return Err(AiError::unsupported(
-                "ComfyUI image handles are not supported yet",
-            ));
-        };
+        crate::input::read_image(&input.payload, self.max_upload_bytes)
+    }
+
+    fn upload(&self, role: InputRole, image: &crate::input::Image) -> Result<String, AiError> {
         self.http
-            .upload_image(role.as_str(), media_type.as_str(), data)
+            .upload_image(role.as_str(), &image.media_type, &image.data)
     }
 }
 
@@ -175,8 +191,11 @@ impl Provider for ComfyProvider {
         let installed = self.http.get_object_info()?;
         workflow.validate_installation(&installed)?;
         let graph = if workflow.capability().as_str() == "image.inpaint" {
-            let source = self.upload_role(request, InputRole::Source)?;
-            let mask = self.upload_role(request, InputRole::Mask)?;
+            // Both are read and checked before either is sent, so a bad mask costs no upload.
+            let source = self.read_role(request, InputRole::Source)?;
+            let mask = self.read_role(request, InputRole::Mask)?;
+            let source = self.upload(InputRole::Source, &source)?;
+            let mask = self.upload(InputRole::Mask, &mask)?;
             workflow.render_with_uploads(request, &source, &mask)?
         } else {
             workflow.render(request)?

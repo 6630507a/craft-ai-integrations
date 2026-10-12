@@ -9,7 +9,10 @@ use craft_ai_model::{ErrorKind, JobState, ModelId, Provider, Request};
 use serde_json::json;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use support::{Reply, Server};
+use support::{Reply, Server, http_bytes};
+
+const PNG_BYTES: &[u8] = b"\x89PNG\r\n\x1a\nPNG data";
+const MP4_BYTES: &[u8] = b"\0\0\0\x18ftypisom video bytes";
 
 fn workflow(cap: &str) -> Workflow {
     Workflow::import(
@@ -89,7 +92,7 @@ fn image_workflow_submits_and_polls_only_its_output_node() {
             "99":{"images":[{"filename":"wrong.png","type":"output"}]}}}})
             .to_string(),
         ),
-        "/view?filename=kite.png&type=output" => Reply::Json(200, "PNG data".into()),
+        "/view?filename=kite.png&type=output" => http_bytes(200, &[], PNG_BYTES),
         _ => Reply::Json(404, "{}".into()),
     });
     let p = provider(&s, "image.generate");
@@ -104,7 +107,7 @@ fn image_workflow_submits_and_polls_only_its_output_node() {
     assert_eq!(snapshot.state, JobState::Succeeded);
     assert_eq!(snapshot.outputs().count(), 1);
     assert!(matches!(&snapshot.outputs().next().unwrap().payload,
-        Payload::Inline { media_type, data } if media_type.as_str() == "image/png" && data == b"PNG data"));
+        Payload::Inline { media_type, data } if media_type.as_str() == "image/png" && data == PNG_BYTES));
     assert!(p.poll(&id).unwrap().events.is_empty());
     let recorded = s.recorded();
     assert_eq!(
@@ -135,7 +138,7 @@ fn video_workflow_waits_then_fetches_video() {
             "outputs":{"2":{"videos":[{"filename":"movie.mp4","type":"output"}]}}}})
             .to_string(),
         ),
-        "/view?filename=movie.mp4&type=output" => Reply::Json(200, "video bytes".into()),
+        "/view?filename=movie.mp4&type=output" => http_bytes(200, &[], MP4_BYTES),
         _ => Reply::Json(404, "{}".into()),
     });
     let p = provider(&s, "video.generate");
@@ -148,7 +151,7 @@ fn video_workflow_waits_then_fetches_video() {
     let result = p.poll(&id).unwrap();
     assert_eq!(result.state, JobState::Succeeded);
     assert!(matches!(&result.outputs().next().unwrap().payload,
-        Payload::Inline { media_type, data } if media_type.as_str() == "video/mp4" && data == b"video bytes"));
+        Payload::Inline { media_type, data } if media_type.as_str() == "video/mp4" && data == MP4_BYTES));
 }
 
 #[test]
@@ -359,7 +362,7 @@ fn provider_passes_shared_conformance_without_network_for_bad_input() {
                 "filename":"ok.png","type":"output"}]}}}})
             .to_string(),
         ),
-        "/view?filename=ok.png&type=output" => Reply::Json(200, "PNG data".into()),
+        "/view?filename=ok.png&type=output" => http_bytes(200, &[], PNG_BYTES),
         _ => Reply::Json(404, "{}".into()),
     });
     let p = provider(&s, "image.generate");
