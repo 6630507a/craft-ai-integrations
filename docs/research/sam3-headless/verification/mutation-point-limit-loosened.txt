@@ -1,3 +1,6 @@
+   Compiling craft-ai-comfyui v0.1.0 (%USERPROFILE%\Apps\ArtCraft\craft-ai-model\crates\ai-comfyui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.52s
+     Running tests\sam3_candidates.rs (target\debug\deps\sam3_candidates-5db244494c922527.exe)
 
 running 1 test
 test unsupported_or_invalid_prompts_never_reach_the_server_graph_queue ... FAILED
@@ -6,7 +9,7 @@ failures:
 
 ---- unsupported_or_invalid_prompts_never_reach_the_server_graph_queue stdout ----
 
-thread 'unsupported_or_invalid_prompts_never_reach_the_server_graph_queue' (63656) panicked at crates\ai-comfyui\tests\sam3_candidates.rs:263:9:
+thread 'unsupported_or_invalid_prompts_never_reach_the_server_graph_queue' (53416) panicked at crates\ai-comfyui\tests\sam3_candidates.rs:263:9:
 accepted too many points
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 
@@ -16,7 +19,4 @@ failures:
 
 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.01s
 
-   Compiling craft-ai-comfyui v0.1.0 (%USERPROFILE%\Apps\ArtCraft\craft-ai-model\crates\ai-comfyui)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.53s
-     Running tests\sam3_candidates.rs (target\debug\deps\sam3_candidates-5db244494c922527.exe)
 error: test failed, to rerun pass `-p craft-ai-comfyui --test sam3_candidates`

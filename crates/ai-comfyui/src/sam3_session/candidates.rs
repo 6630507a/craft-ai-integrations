@@ -133,5 +133,6 @@ impl Sam3Session {
         let (width, height, masks) =
             fetch(&self.http, node, prepared.width, prepared.height)?.into_parts();
         Sam3Candidates::assemble(width, height, masks, scores)
+            .map(|found| found.stamped(self.revision()))
     }
 }

@@ -2,6 +2,7 @@
 //! with its mask, the model's predicted quality score and the bounds measured from the mask.
 //! Candidates are not labelled or ranked for the person; `highest_scoring` is only a helper.
 use crate::sam3_detect::{MAX_TEXT_BYTES, bounds, decode, list, number};
+use crate::sam3_lifecycle::Revision;
 use crate::sam3_masks::bad;
 use craft_ai_model::AiError;
 
@@ -51,12 +52,23 @@ impl std::fmt::Debug for Sam3Candidate {
 /// Every candidate for one prompt, in server order.
 #[derive(Debug)]
 pub struct Sam3Candidates {
+    revision: Revision,
     width: u32,
     height: u32,
     candidates: Vec<Sam3Candidate>,
 }
 
 impl Sam3Candidates {
+    /// The prepared image these candidates were computed from; see `Sam3Session::is_current`.
+    pub fn revision(&self) -> Revision {
+        self.revision
+    }
+
+    pub(crate) fn stamped(mut self, revision: Revision) -> Self {
+        self.revision = revision;
+        self
+    }
+
     pub fn dimensions(&self) -> (u32, u32) {
         (self.width, self.height)
     }
@@ -98,6 +110,7 @@ impl Sam3Candidates {
             return Err(bad("SAM 3 found no object at that prompt"));
         }
         Ok(Self {
+            revision: Revision::new(0),
             width,
             height,
             candidates,

@@ -1,18 +1,22 @@
 //! Prepared local SAM 3 image embedding for fast hover previews and exact selection masks.
-//! The installed interactive node owns one PhotoCraft cache slot; each prepare forces new image state.
+//! Each prepared image holds one of a few bounded server cache slots (see `sam3_lease`); each
+//! prepare forces new image state.
 use crate::http::Http;
+use crate::sam3_lease::SlotLease;
+use crate::sam3_lifecycle::{Revision, Sam3Canceller};
 
-use base64::Engine;
 use craft_ai_model::endpoint::Endpoint;
 
 use craft_ai_model::{AiError, ErrorKind};
 use serde_json::{Value, json};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::path::PathBuf;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 mod candidates;
+mod hover;
 mod instances;
+mod queue;
 
-const NODE: &str = "craft_ai_sam3";
 const REQUIRED: &[&str] = &[
     "LoadImage",
     "LoadSAM3Model",
@@ -21,52 +25,12 @@ const REQUIRED: &[&str] = &[
     "SaveImage",
 ];
 
-/// Everything the installed SAM 3 model accepts in one geometric prompt.
-pub mod sam3 {
-    use serde_json::{Value, json};
-    /// One geometric prompt: any mix of positive points, negative points and one box,
-    /// all in pixels of the prepared image.
-    #[derive(Clone, Debug, Default, PartialEq)]
-    pub struct Prompt {
-        pub positive_points: Vec<(f32, f32)>,
-        pub negative_points: Vec<(f32, f32)>,
-        pub box_: Option<[f32; 4]>,
-    }
-
-    impl Prompt {
-        pub fn point(x: f32, y: f32) -> Self {
-            Self {
-                positive_points: vec![(x, y)],
-                ..Default::default()
-            }
-        }
-
-        pub fn is_empty(&self) -> bool {
-            self.positive_points.is_empty()
-                && self.negative_points.is_empty()
-                && self.box_.is_none()
-        }
-
-        pub(crate) fn store(&self, session: u128) -> Value {
-            let points = |list: &[(f32, f32)]| {
-                list.iter()
-                    .map(|(x, y)| json!({"x": x, "y": y}))
-                    .collect::<Vec<_>>()
-            };
-            json!([{
-                "positive_points": points(&self.positive_points),
-                "negative_points": points(&self.negative_points),
-                "positive_boxes": match self.box_ {
-                    Some([x1, y1, x2, y2]) => json!([{"x1": x1, "y1": y1, "x2": x2, "y2": y2}]),
-                    None => json!([]),
-                },
-                "session": session,
-            }])
-        }
-    }
-}
+mod prompt;
+pub use prompt::sam3;
 
 struct Prepared {
+    /// The server cache slot's graph node id.
+    node: String,
     filename: String,
     width: u32,
     height: u32,
@@ -82,10 +46,19 @@ struct Prepared {
 }
 
 /// A single local session. Calls block and must never run on the UI thread.
-/// Starting a second session on the same server replaces the first session's hover cache.
+/// Each prepared image holds its own bounded server cache slot, so sessions (in this or another
+/// process) do not replace each other's hover cache; when all slots are taken, `prepare` is
+/// refused until one session is released or dropped.
 pub struct Sam3Session {
     http: Http,
     prepared: Option<Prepared>,
+    /// Short name of the server address, so each server has its own pool of slots.
+    server: String,
+    lock_dir: PathBuf,
+    lease: Option<SlotLease>,
+    revision: u64,
+    canceller: Sam3Canceller,
+    targeted_interrupt: bool,
 }
 
 impl Sam3Session {
@@ -104,7 +77,59 @@ impl Sam3Session {
                 Duration::from_secs(15),
             ),
             prepared: None,
+            server: base
+                .chars()
+                .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+                .collect(),
+            lock_dir: std::env::temp_dir().join("craft-ai-sam3"),
+            lease: None,
+            revision: 0,
+            canceller: Sam3Canceller::default(),
+            targeted_interrupt: false,
         })
+    }
+
+    /// Keep the slot locks in `dir` instead of the default folder under the system temp
+    /// directory. All sessions that share a server must agree on the folder.
+    pub fn with_lock_dir(mut self, dir: PathBuf) -> Self {
+        self.lock_dir = dir;
+        self
+    }
+
+    /// Allow cancelling to interrupt a running prompt. Only turn this on for a ComfyUI that scopes
+    /// `/interrupt` to a prompt id (the installed 0.22 does; older versions interrupt whatever
+    /// is running). Off, cancelling stops the wait and removes the prompt if still queued.
+    pub fn with_targeted_interrupt(mut self, confirmed: bool) -> Self {
+        self.targeted_interrupt = confirmed;
+        self
+    }
+
+    /// A handle that cancels this session's in-flight request from another thread.
+    pub fn canceller(&self) -> Sam3Canceller {
+        self.canceller.clone()
+    }
+
+    /// The revision of the image this session holds (0 before the first `prepare`).
+    pub fn revision(&self) -> Revision {
+        Revision::new(self.revision)
+    }
+
+    /// Whether a result stamped with `revision` came from the image the session holds now.
+    pub fn is_current(&self, revision: Revision) -> bool {
+        self.prepared.is_some() && revision == self.revision()
+    }
+
+    /// The server cache slot this session holds, once it has prepared an image.
+    pub fn slot(&self) -> Option<usize> {
+        self.lease.as_ref().map(SlotLease::slot)
+    }
+
+    /// Give up the prepared image and its slot, for example when its document closes.
+    /// The server's cached tensors stay until another session reuses the slot.
+    pub fn release(&mut self) {
+        self.revision += 1;
+        self.prepared = None;
+        self.lease = None;
     }
 
     /// Confirm that the loopback listener is ComfyUI rather than another local service.
@@ -123,7 +148,9 @@ impl Sam3Session {
     }
 
     /// Upload the PNG once and compute its image embedding as the tool activates.
-    pub fn prepare(&mut self, image: &[u8]) -> Result<(), AiError> {
+    pub fn prepare(&mut self, image: &[u8]) -> Result<Revision, AiError> {
+        // Anything computed before this call is now stale, whether or not the call succeeds.
+        self.revision += 1;
         self.prepared = None;
         if image.len() < 8
             || image.len() > 16 * 1024 * 1024
@@ -153,6 +180,14 @@ impl Sam3Session {
                 )));
             }
         }
+        if self.lease.is_none() {
+            self.lease = Some(SlotLease::acquire(&self.lock_dir, &self.server)?);
+        }
+        let node = self
+            .lease
+            .as_ref()
+            .map(SlotLease::node_id)
+            .unwrap_or_default();
         let filename = self
             .http
             .upload_image("sam3-interactive", "image/png", image)?;
@@ -161,6 +196,7 @@ impl Sam3Session {
             .map(|d| d.as_nanos())
             .unwrap_or_default();
         let prepared = Prepared {
+            node,
             filename,
             width,
             height,
@@ -175,112 +211,7 @@ impl Sam3Session {
         let graph = self.graph(&prepared, json!([{"session":nonce}]), false);
         self.queue(graph)?;
         self.prepared = Some(prepared);
-        Ok(())
-    }
-
-    /// Return a JPEG overlay for a pixel inside the prepared image, without queueing a graph.
-    pub fn preview(&self, x: f32, y: f32) -> Result<Vec<u8>, AiError> {
-        let prepared = self.point(x, y)?;
-        let response = self.http.post(
-            "/sam3/interactive_segment_one",
-            &json!({
-                "node_id": NODE, "prompt_index": 0, "prompt_name": "Object selection",
-                "prompt": {"positive_points": [{"x": x, "y": y}]},
-            }),
-        )?;
-        if response.get("num_masks").and_then(Value::as_u64) != Some(1) {
-            return Err(AiError::new(
-                ErrorKind::Provider,
-                "SAM 3 preview returned no object",
-            ));
-        }
-        let encoded = response
-            .get("overlay")
-            .and_then(Value::as_str)
-            .filter(|s| s.len() <= 24 * 1024 * 1024)
-            .ok_or_else(|| {
-                AiError::new(ErrorKind::Provider, "SAM 3 preview is missing or too large")
-            })?;
-        let jpeg = base64::engine::general_purpose::STANDARD
-            .decode(encoded)
-            .map_err(|_| AiError::new(ErrorKind::Provider, "SAM 3 preview is not base64"))?;
-        if !jpeg.starts_with(&[0xff, 0xd8]) || !jpeg.ends_with(&[0xff, 0xd9]) {
-            return Err(AiError::new(
-                ErrorKind::Provider,
-                "SAM 3 preview is not JPEG",
-            ));
-        }
-        // Preserve the association with the image checked before this HTTP call.
-        let _ = prepared;
-        Ok(jpeg)
-    }
-
-    /// Save the exact grayscale mask through the installed graph, not the lossy hover JPEG.
-    pub fn commit(&self, x: f32, y: f32) -> Result<Vec<u8>, AiError> {
-        let prepared = self.point(x, y)?;
-        let graph = self.graph(
-            prepared,
-            json!([{
-                "positive_points": [{"x": x, "y": y}], "session": prepared.nonce
-            }]),
-            true,
-        );
-        let record = self.queue(graph)?;
-        let node = record
-            .pointer("/outputs/5")
-            .ok_or_else(|| AiError::new(ErrorKind::Provider, "SAM 3 returned no selection mask"))?;
-        crate::sam3_masks::fetch(&self.http, node, prepared.width, prepared.height)?.union_png()
-    }
-
-    /// Return a JPEG overlay for the full prompt, without queueing a graph.
-    pub fn preview_prompt(&self, prompt: &sam3::Prompt) -> Result<Vec<u8>, AiError> {
-        let prepared = self.prompt_bounds(prompt)?;
-        let response = self.http.post(
-            "/sam3/interactive_segment_one",
-            &json!({
-                "node_id": NODE, "prompt_index": 0, "prompt_name": "Object selection",
-                "prompt": {
-                    "positive_points": prompt.positive_points.iter().map(|(x, y)| json!({"x": x, "y": y})).collect::<Vec<_>>(),
-                    "negative_points": prompt.negative_points.iter().map(|(x, y)| json!({"x": x, "y": y})).collect::<Vec<_>>(),
-                    "positive_boxes": match prompt.box_ {
-                        Some([x1, y1, x2, y2]) => json!([{"x1": x1, "y1": y1, "x2": x2, "y2": y2}]),
-                        None => json!([]),
-                    },
-                },
-            }),
-        )?;
-        if response.get("num_masks").and_then(Value::as_u64) != Some(1) {
-            return Err(AiError::new(
-                ErrorKind::Provider,
-                "SAM 3 preview returned no object",
-            ));
-        }
-        let encoded = response
-            .get("overlay")
-            .and_then(Value::as_str)
-            .filter(|s| s.len() <= 24 * 1024 * 1024)
-            .ok_or_else(|| {
-                AiError::new(ErrorKind::Provider, "SAM 3 preview is missing or too large")
-            })?;
-        let jpeg = base64::engine::general_purpose::STANDARD
-            .decode(encoded)
-            .map_err(|_| AiError::new(ErrorKind::Provider, "SAM 3 preview is not base64"))?;
-        if !jpeg.starts_with(&[0xff, 0xd8]) || !jpeg.ends_with(&[0xff, 0xd9]) {
-            return Err(AiError::new(
-                ErrorKind::Provider,
-                "SAM 3 preview is not JPEG",
-            ));
-        }
-        // Preserve the association with the image checked before this HTTP call.
-        let _ = prepared;
-        Ok(jpeg)
-    }
-
-    /// Save the exact grayscale mask for a full geometric prompt.
-    pub fn commit_prompt(&self, prompt: &sam3::Prompt) -> Result<Vec<u8>, AiError> {
-        let prepared = self.prompt_bounds(prompt)?;
-        let graph = self.graph(prepared, prompt.store(prepared.nonce), true);
-        self.mask_from(graph)
+        Ok(self.revision())
     }
 
     /// Text grounding: segment everything matching the phrase, reusing the prepared image.
@@ -401,81 +332,16 @@ impl Sam3Session {
         let mut graph = json!({
             "1":{"class_type":"LoadImage","inputs":{"image":p.filename}},
             "2":{"class_type":"LoadSAM3Model","inputs":{"precision":"auto","compile":false}},
-            NODE:{"class_type":"SAM3InteractiveCollector","inputs":{
-                "sam3_model_config":["2",0],"image":["1",0],
-                "multi_prompts_store": prompts.to_string()
-            }}
         });
-        // serde_json's json! macro treats NODE as a literal key; the node ID above is stable.
+        // The collector's node id is the server's cache key, so it names this session's slot.
+        graph[p.node.as_str()] = json!({"class_type":"SAM3InteractiveCollector","inputs":{
+            "sam3_model_config":["2",0],"image":["1",0],
+            "multi_prompts_store": prompts.to_string()
+        }});
         if mask {
-            graph["4"] = json!({"class_type":"MaskToImage","inputs":{"mask":[NODE,0]}});
+            graph["4"] = json!({"class_type":"MaskToImage","inputs":{"mask":[p.node,0]}});
             graph["5"] = json!({"class_type":"SaveImage","inputs":{"images":["4",0],"filename_prefix":"craft-sam3-selection"}});
         }
         graph
-    }
-
-    fn queue(&self, mut graph: Value) -> Result<Value, AiError> {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static NEXT_OUTPUT: AtomicU64 = AtomicU64::new(0);
-        let nodes = graph
-            .as_object_mut()
-            .ok_or_else(|| AiError::invalid("SAM 3 graph is invalid"))?;
-        for node in nodes.values_mut() {
-            if node.get("class_type").and_then(Value::as_str) != Some("SaveImage") {
-                continue;
-            }
-            if let Some(prefix) = node.pointer_mut("/inputs/filename_prefix") {
-                let name = prefix
-                    .as_str()
-                    .ok_or_else(|| AiError::invalid("SAM 3 output prefix is invalid"))?;
-                let unique = format!(
-                    "{name}-{}-{}",
-                    std::process::id(),
-                    NEXT_OUTPUT.fetch_add(1, Ordering::Relaxed)
-                );
-                *prefix = Value::String(unique);
-            }
-        }
-        // A fully cached SaveImage can yield no history outputs on newer servers.
-        // Change only the sink signature, keeping source/model/inference nodes cacheable.
-        let response = self.http.post("/prompt", &json!({"prompt":graph}))?;
-        let id = response
-            .get("prompt_id")
-            .and_then(Value::as_str)
-            .filter(|s| {
-                !s.is_empty()
-                    && s.len() <= 128
-                    && s.bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
-            })
-            .ok_or_else(|| {
-                AiError::new(
-                    ErrorKind::Provider,
-                    "ComfyUI did not return a valid prompt id",
-                )
-            })?;
-        let path = format!("/history/{id}");
-        let deadline = Instant::now() + Duration::from_secs(240);
-        loop {
-            let history = self.http.get_json(&path)?;
-            if let Some(record) = history.get(id) {
-                if record.pointer("/status/status_str").and_then(Value::as_str) == Some("error") {
-                    return Err(AiError::new(
-                        ErrorKind::Provider,
-                        "SAM 3 workflow failed in ComfyUI",
-                    ));
-                }
-                if record.pointer("/status/completed").and_then(Value::as_bool) == Some(true) {
-                    return Ok(record.clone());
-                }
-            }
-            if Instant::now() >= deadline {
-                return Err(AiError::new(
-                    ErrorKind::Network,
-                    "SAM 3 timed out in ComfyUI",
-                ));
-            }
-            std::thread::sleep(Duration::from_millis(150));
-        }
     }
 }

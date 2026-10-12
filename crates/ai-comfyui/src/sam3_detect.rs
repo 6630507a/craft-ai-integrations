@@ -2,6 +2,7 @@
 //! box, its score and the bounds measured from the mask itself aligned by index. A count or
 //! value that does not line up fails the whole result; nothing is guessed or dropped.
 //! Detector boxes are model metadata; use mask bounds and `pick` for exact geometry.
+use crate::sam3_lifecycle::Revision;
 use crate::sam3_masks::{bad, union_masks};
 use craft_ai_model::AiError;
 use serde_json::Value;
@@ -83,6 +84,7 @@ impl std::fmt::Debug for Sam3Instance {
 /// Every instance found for one phrase, in the server's score order.
 #[derive(Debug)]
 pub struct Sam3Detections {
+    revision: Revision,
     phrase: String,
     width: u32,
     height: u32,
@@ -90,6 +92,16 @@ pub struct Sam3Detections {
 }
 
 impl Sam3Detections {
+    /// The prepared image these instances were found in; see `Sam3Session::is_current`.
+    pub fn revision(&self) -> Revision {
+        self.revision
+    }
+
+    pub(crate) fn stamped(mut self, revision: Revision) -> Self {
+        self.revision = revision;
+        self
+    }
+
     /// The text the instances were found for. All instances share this label.
     pub fn phrase(&self) -> &str {
         &self.phrase
@@ -195,6 +207,7 @@ impl Metadata {
             });
         }
         Ok(Sam3Detections {
+            revision: Revision::new(0),
             phrase: phrase.to_owned(),
             width,
             height,

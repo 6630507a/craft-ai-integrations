@@ -116,6 +116,8 @@ impl Sam3Session {
             .ok_or_else(|| bad("SAM 3 returned no selection masks"))?;
         let (width, height, masks) =
             fetch(&self.http, node, prepared.width, prepared.height)?.into_parts();
-        metadata.attach(phrase, width, height, masks)
+        metadata
+            .attach(phrase, width, height, masks)
+            .map(|found| found.stamped(self.revision()))
     }
 }

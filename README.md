@@ -123,17 +123,24 @@ records backend capabilities and limits, not a promise that every audited featur
 1. **sg1, done:** bounded SAM 3 instance-mask retrieval, explicit union versus individual
    results, count/byte/pixel/dimension limits, fail-whole on a bad later mask, cache-safe repeats.
    Verified live; see `docs/research/sam3-headless/verification/`.
-2. **sg2/sg3, now:** sg2a is done (typed grounding instances: mask, detector box, score, exact
-   bounds, pick-under-pixel) and sg2b (the alternative masks for a point and/or box prompt, with
-   scores and 0 to 10 refinement passes) are built and live-verified. Next is sg3: managed prepared sessions, revision invalidation and scoped
-   cancellation. No new UI until the crate path works.
+2. **sg2/sg3, done:** typed grounding instances (mask, detector box, score, exact bounds,
+   pick-under-pixel); the alternative masks for a point and/or box prompt with scores and 0 to 10
+   refinement passes; bounded, exclusive server cache slots per prepared image (an OS file lock
+   shared across processes, freed if the holder crashes), revisions that mark stale results, and
+   cancellation that touches only the request's own prompt. All live-verified. No UI until the
+   crate path works.
 3. **p4/p10:** bounded file-handle uploads and generic output content verification, durable assets
    and long-job reliability. A saved link is not a retained asset; an input handle is not an upload.
 4. **p5/p7/p8:** real source/reference/edit inputs for the distinct ArtCraft, Vertex and BFL API
    families, with scripted conformance first and live hosted tests only when authorised.
-5. **sg4/sg5:** per-app object picking, layer-mask/extraction/edit destinations and cropped detail
+5. **u1 to u5 (added 12/10/2026, next):** custom connections to unlisted providers (a first-class flow,
+   then a data-only declarative adapter for non-OpenAI API shapes) and user-chosen model sources
+   (Hugging Face, GitHub releases, Civitai, local files, and node packs from a GitHub address),
+   with own-host tokens, no redirect key leaks, pickle formats refused or consented and unverified
+   checksums flagged. Crates first; launcher screens after.
+6. **sg4/sg5:** per-app object picking, layer-mask/extraction/edit destinations and cropped detail
    selection with explicit coordinate mapping. Other apps remain proposed until adopted.
-6. **sg6/sg7/sg8:** native SAM 3.1 evaluation, separate soft-alpha matting, then bounded video
+7. **sg6/sg7/sg8:** native SAM 3.1 evaluation, separate soft-alpha matting, then bounded video
    propagation. No new packs/models by default, and no segmentation-as-matting claim.
 
 V1 still requires a usable configured image operation for each named route, real local image

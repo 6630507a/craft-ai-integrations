@@ -1,3 +1,6 @@
+   Compiling craft-ai-comfyui v0.1.0 (%USERPROFILE%\Apps\ArtCraft\craft-ai-model\crates\ai-comfyui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.52s
+     Running tests\sam3_masks.rs (target\debug\deps\sam3_masks-7c640e9f768dc471.exe)
 
 running 1 test
 test grounding_unions_every_instance_in_the_mapped_output ... FAILED
@@ -6,7 +9,7 @@ failures:
 
 ---- grounding_unions_every_instance_in_the_mapped_output stdout ----
 
-thread 'grounding_unions_every_instance_in_the_mapped_output' (60836) panicked at crates\ai-comfyui\tests\sam3_masks.rs:18:5:
+thread 'grounding_unions_every_instance_in_the_mapped_output' (65212) panicked at crates\ai-comfyui\tests\sam3_masks.rs:18:5:
 assertion `left == right` failed: both instances must survive retrieval
   left: [255, 0]
  right: [255, 255]
@@ -18,7 +21,4 @@ failures:
 
 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.01s
 
-   Compiling craft-ai-comfyui v0.1.0 (%USERPROFILE%\Apps\ArtCraft\craft-ai-model\crates\ai-comfyui)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.51s
-     Running tests\sam3_masks.rs (target\debug\deps\sam3_masks-7c640e9f768dc471.exe)
 error: test failed, to rerun pass `-p craft-ai-comfyui --test sam3_masks`
