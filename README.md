@@ -66,6 +66,8 @@ no unsafe). This is a public first-draft repository on `Jeremy8776/craft-ai-mode
 craft-libs. PhotoCraft dev consumes the dedicated SAM 3 client, not the complete shared
 role/connection/consent flow; adoption by the other apps remains open.
 
+Which crate does what, what stays in the apps, and how apps consume this repo: [docs/LAYOUT.md](docs/LAYOUT.md).
+
 ## Tools and the local runtime
 
 `craft-ai-features` (wasm-safe) is what a launcher or app shows a person: AI tools such as select subject
