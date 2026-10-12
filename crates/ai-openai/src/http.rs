@@ -24,6 +24,8 @@ pub(crate) struct Http {
     agent: ureq::Agent,
     base: String,
     key: Option<SecretString>,
+    /// Header that carries the key; `None` is `Authorization: Bearer`.
+    key_header: Option<String>,
 }
 
 impl Http {
@@ -45,7 +47,19 @@ impl Http {
             agent: ureq::Agent::new_with_config(config),
             base,
             key,
+            key_header: None,
         }
+    }
+
+    /// Sends the key as the bare value of this header instead of as a bearer token.
+    pub fn with_key_header(mut self, name: Option<String>) -> Self {
+        self.key_header = name;
+        self
+    }
+
+    /// Whether this is OpenRouter's own address, the only server whose `/models` prices are read.
+    pub fn is_openrouter(&self) -> bool {
+        is_openrouter(&self.base)
     }
 
     /// Keeps a cost the server reported only if the server is OpenRouter, whose `usage.cost` is
@@ -65,17 +79,23 @@ impl Http {
         format!("{}{}", self.base, path)
     }
 
-    fn bearer(&self) -> Option<String> {
-        self.key
-            .as_ref()
-            .filter(|k| !k.is_empty())
-            .map(|k| format!("Bearer {}", k.expose()))
+    /// The header that carries the key, and its value. Only ever added to a request for this
+    /// connection's own base address; redirects are not followed.
+    fn credential(&self) -> Option<(String, String)> {
+        let key = self.key.as_ref().filter(|k| !k.is_empty())?;
+        Some(match &self.key_header {
+            Some(name) => (name.clone(), key.expose().to_owned()),
+            None => (
+                "Authorization".to_owned(),
+                format!("Bearer {}", key.expose()),
+            ),
+        })
     }
 
     pub fn get_json(&self, path: &str) -> Result<Value, AiError> {
         let mut req = self.agent.get(self.url(path));
-        if let Some(b) = self.bearer() {
-            req = req.header("Authorization", b);
+        if let Some((name, value)) = self.credential() {
+            req = req.header(name, value);
         }
         let resp = self.checked(req.call())?;
         self.read_json(resp)
@@ -88,8 +108,8 @@ impl Http {
         body: &[u8],
     ) -> Result<Response<Body>, AiError> {
         let mut req = self.agent.post(self.url(path)).content_type(content_type);
-        if let Some(b) = self.bearer() {
-            req = req.header("Authorization", b);
+        if let Some((name, value)) = self.credential() {
+            req = req.header(name, value);
         }
         self.checked(req.send(body))
     }

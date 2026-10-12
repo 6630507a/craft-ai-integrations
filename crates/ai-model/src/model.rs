@@ -90,6 +90,21 @@ impl CapabilitySpec {
     }
 }
 
+/// What a provider says a model costs, in millionths of a US dollar. Every field is optional:
+/// providers report some, one or none, and a missing price is never filled in by guessing.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Pricing {
+    /// For one million input tokens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_micros_per_mtok: Option<u64>,
+    /// For one million output tokens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_micros_per_mtok: Option<u64>,
+    /// For one image (or one generated clip, for video).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub per_image_micros: Option<u64>,
+}
+
 /// One model as offered by one connection.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelInfo {
@@ -97,6 +112,16 @@ pub struct ModelInfo {
     pub label: String,
     #[serde(default)]
     pub capabilities: Vec<CapabilitySpec>,
+    /// Reported by the provider where it can be (OpenRouter does). Absent in stores written before
+    /// this field existed, which still load.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pricing: Option<Pricing>,
+    /// When the model was released, in Unix seconds, where the provider reports it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub released: Option<u64>,
+    /// Labels from the curated catalog, such as `recommended`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
 }
 
 impl ModelInfo {
@@ -105,6 +130,9 @@ impl ModelInfo {
             id,
             label: label.into(),
             capabilities: Vec::new(),
+            pricing: None,
+            released: None,
+            tags: Vec::new(),
         }
     }
 
@@ -126,6 +154,33 @@ mod tests {
 
     fn cap(s: &str) -> CapabilityId {
         CapabilityId::parse(s).unwrap()
+    }
+
+    #[test]
+    fn a_store_written_before_pricing_existed_still_loads_and_leaves_it_out_when_absent() {
+        let old = r#"{"id":"gpt-4o","label":"gpt-4o","capabilities":[]}"#;
+        let info: ModelInfo = serde_json::from_str(old).unwrap();
+        assert_eq!(
+            (info.pricing.clone(), info.released, info.tags.clone()),
+            (None, None, Vec::new())
+        );
+        let again = serde_json::to_string(&info).unwrap();
+        assert!(
+            !again.contains("pricing") && !again.contains("released") && !again.contains("tags"),
+            "{again}"
+        );
+        let priced = ModelInfo {
+            pricing: Some(Pricing {
+                per_image_micros: Some(40_000),
+                ..Pricing::default()
+            }),
+            released: Some(1_760_000_000),
+            tags: vec!["recommended".into()],
+            ..info
+        };
+        let back: ModelInfo =
+            serde_json::from_str(&serde_json::to_string(&priced).unwrap()).unwrap();
+        assert_eq!(back, priced);
     }
 
     #[test]

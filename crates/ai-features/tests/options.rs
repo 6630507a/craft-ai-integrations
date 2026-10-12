@@ -9,10 +9,7 @@ fn options_are_derived_from_the_features_not_written_twice() {
     assert!(matches!(&options[0].route, Route::Local { feature } if feature == "select-subject"));
     assert_eq!(options[0].title, "SAM 3");
     assert_eq!(options[0].unlocks, ["select-subject"]);
-    assert!(
-        !options[0].usable,
-        "no workflow runs it yet, so it must not promise a tool"
-    );
+    assert!(options[0].usable, "PhotoCraft runs SAM 3 today");
     assert!(options.iter().skip(1).all(|o| o.usable));
     // Ids are unique.
     let mut ids: Vec<_> = options.iter().map(|o| o.id.clone()).collect();

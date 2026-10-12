@@ -321,6 +321,7 @@ fn build_openai(
     })?;
     let mut config = OpenAiConfig::new(endpoint);
     config.api_key = secret;
+    config.key_header = connection.key_header.clone();
     if let Some((connect, request)) = timeouts {
         config.connect_timeout = connect;
         config.request_timeout = request;

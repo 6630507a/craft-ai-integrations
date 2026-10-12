@@ -13,10 +13,11 @@ mod detect;
 mod download;
 mod hardware;
 mod scan;
+pub mod source;
 mod verify;
 
 pub use detect::{ComfyInstall, parse_extra_paths};
 pub use download::{DownloadConfig, Downloader, Phase, Progress};
 pub use hardware::{free_disk_bytes, parse_nvidia_smi, vram_mb};
 pub use scan::scan;
-pub use verify::verify_file;
+pub use verify::{hash_file, verify_file};

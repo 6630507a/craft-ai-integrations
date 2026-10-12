@@ -508,3 +508,16 @@ fn a_cost_field_from_an_unknown_server_is_not_shown_as_money() {
     assert_eq!(usage.cost_micros, None);
     assert_eq!(usage.currency, None);
 }
+
+#[test]
+fn prices_in_a_model_list_are_ignored_unless_the_server_is_openrouter() {
+    let list = r#"{"object":"list","data":[{"id":"gpt-4o","created":1700000000,
+                   "pricing":{"prompt":"0.000005","completion":"0.000015"}}]}"#;
+    let server = Server::start(move |_| Reply::Json(200, list.to_owned()));
+    let models = provider(&server.url).models().unwrap();
+    assert_eq!(models.len(), 1);
+    assert_eq!(
+        (models[0].pricing.clone(), models[0].released),
+        (None, None)
+    );
+}

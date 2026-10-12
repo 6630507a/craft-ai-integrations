@@ -17,17 +17,37 @@ pub fn verify_file(
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<(), AiError> {
-    let unreadable = |_| {
-        AiError::new(
-            ErrorKind::Internal,
-            "could not read the model file to check it",
-        )
-    };
-    let mut input = std::fs::File::open(path).map_err(unreadable)?;
-    let size = input.metadata().map_err(unreadable)?.len();
+    // A file of the wrong size is refused without being read.
+    let size = std::fs::metadata(path)
+        .map(|m| m.len())
+        .map_err(unreadable)?;
     if size != file.size_bytes {
         return Err(mismatch());
     }
+    let (_, digest) = hash_file(path, cancel, progress)?;
+    if digest == file.sha256.to_ascii_lowercase() {
+        Ok(())
+    } else {
+        Err(mismatch())
+    }
+}
+
+fn unreadable<E>(_: E) -> AiError {
+    AiError::new(
+        ErrorKind::Internal,
+        "could not read the model file to check it",
+    )
+}
+
+/// The size and lower-case hex SHA-256 of the file at `path`, read once. Reports progress as
+/// `Verifying`; fails with `Cancelled` when `cancel` is set.
+pub fn hash_file(
+    path: &Path,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<(u64, String), AiError> {
+    let mut input = std::fs::File::open(path).map_err(unreadable)?;
+    let size = input.metadata().map_err(unreadable)?.len();
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; 1024 * 1024];
     let mut done = 0u64;
@@ -52,11 +72,7 @@ pub fn verify_file(
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect();
-    if digest == file.sha256.to_ascii_lowercase() {
-        Ok(())
-    } else {
-        Err(mismatch())
-    }
+    Ok((size, digest))
 }
 
 fn mismatch() -> AiError {

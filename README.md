@@ -133,11 +133,13 @@ records backend capabilities and limits, not a promise that every audited featur
    and long-job reliability. A saved link is not a retained asset; an input handle is not an upload.
 4. **p5/p7/p8:** real source/reference/edit inputs for the distinct ArtCraft, Vertex and BFL API
    families, with scripted conformance first and live hosted tests only when authorised.
-5. **u1 to u5 (added 12/10/2026, next):** custom connections to unlisted providers (a first-class flow,
-   then a data-only declarative adapter for non-OpenAI API shapes) and user-chosen model sources
-   (Hugging Face, GitHub releases, Civitai, local files, and node packs from a GitHub address),
-   with own-host tokens, no redirect key leaks, pickle formats refused or consented and unverified
-   checksums flagged. Crates first; launcher screens after.
+5. **u1 to u5 (added 12/10/2026):** custom connections to unlisted providers (u1) and user-chosen
+   model sources (u3: Hugging Face, GitHub releases, Civitai, local files; u4: node packs from a
+   GitHub address) are built as crates and proven against scripted servers only, with own-host
+   tokens, no redirect key leaks, pickle formats consented and unverified checksums flagged.
+   The data-only declarative adapter for non-OpenAI API shapes (u2) is designed
+   (`docs/design/u2-declarative-adapter.md`) but not built. Launcher screens (u5) are not started.
+   Nothing here has run against a real provider, download or repository.
 6. **sg4/sg5:** per-app object picking, layer-mask/extraction/edit destinations and cropped detail
    selection with explicit coordinate mapping. Other apps remain proposed until adopted.
 7. **sg6/sg7/sg8:** native SAM 3.1 evaluation, separate soft-alpha matting, then bounded video

@@ -200,6 +200,8 @@ pub enum Field {
     Provider,
     Address,
     Key,
+    /// The name of the header that carries the key.
+    KeyHeader,
 }
 
 /// Why a draft was refused. The message is safe to show.
@@ -257,6 +259,8 @@ pub struct ConnectionDraft {
     /// string only because a text box needs one; [`Debug`] never prints it and [`prepare`]
     /// (Self::prepare) turns it into a [`SecretString`].
     pub key: String,
+    /// Header that carries the key; empty sends it as `Authorization: Bearer`.
+    pub key_header: String,
     pub enabled: bool,
     /// Models found by a test, carried onto the saved connection.
     pub models: Vec<ModelInfo>,
@@ -275,6 +279,7 @@ impl Default for ConnectionDraft {
             billing: Billing::Unknown,
             uses_key: true,
             key: String::new(),
+            key_header: String::new(),
             enabled: true,
             models: Vec::new(),
             secret: None,
@@ -291,6 +296,7 @@ impl fmt::Debug for ConnectionDraft {
             .field("provider", &self.provider)
             .field("endpoint", &self.endpoint)
             .field("uses_key", &self.uses_key)
+            .field("key_header", &self.key_header)
             .field("key", &format_args!("<{} chars>", self.key.chars().count()))
             .finish_non_exhaustive()
     }
@@ -320,6 +326,7 @@ impl ConnectionDraft {
             billing: c.billing,
             uses_key: c.auth.secret_ref().is_some(),
             key: String::new(),
+            key_header: c.key_header.clone().unwrap_or_default(),
             enabled: c.enabled,
             models: c.models.clone(),
             secret: c.auth.secret_ref().cloned(),
@@ -383,6 +390,7 @@ impl ConnectionDraft {
         };
 
         let typed = self.typed_key()?;
+        let key_header = self.checked_key_header()?;
 
         let id = match &self.editing {
             Some(id) => {
@@ -415,6 +423,7 @@ impl ConnectionDraft {
                 self.models.clone()
             },
             enabled: self.enabled,
+            key_header,
         };
         connection
             .validate()
@@ -477,59 +486,10 @@ pub fn check_key(text: &str) -> Result<(), DraftError> {
     Ok(())
 }
 
-/// A lowercase, dash-separated name made from a label.
-fn slug(label: &str) -> String {
-    let mut out = String::new();
-    for c in label.chars() {
-        if c.is_ascii_alphanumeric() {
-            out.push(c.to_ascii_lowercase());
-        } else if !out.ends_with('-') && !out.is_empty() {
-            out.push('-');
-        }
-        if out.len() >= 40 {
-            break;
-        }
-    }
-    let out = out.trim_end_matches('-');
-    if out.is_empty() {
-        "connection".to_owned()
-    } else {
-        out.to_owned()
-    }
-}
+use ids::{new_id, new_secret_ref};
 
-/// The locator for a new connection's key: its id plus `.key`, so it is recognisable in a keychain
-/// listing and two connections can never share a key. (Ids are unique, so this is too, unless an
-/// older file used the same text for something else; then it gets a number.)
-fn new_secret_ref(id: &ConnectionId, existing: &[Connection]) -> Result<SecretRef, DraftError> {
-    let used = |s: &str| {
-        existing
-            .iter()
-            .any(|c| c.auth.secret_ref().is_some_and(|r| r.as_str() == s))
-    };
-    let mut candidate = format!("{id}.key");
-    let mut n = 2u32;
-    while used(&candidate) {
-        candidate = format!("{id}.key{n}");
-        n = n.saturating_add(1);
-    }
-    SecretRef::new(candidate)
-        .map_err(|_| DraftError::new(Field::Label, "That name cannot be used for the saved key."))
-}
-
-/// An id derived from the label that no saved connection uses.
-fn new_id(label: &str, existing: &[Connection]) -> Result<ConnectionId, DraftError> {
-    let base = slug(label);
-    let taken = |s: &str| existing.iter().any(|c| c.id.as_str() == s);
-    let mut candidate = base.clone();
-    let mut n = 2u32;
-    while taken(&candidate) {
-        candidate = format!("{base}-{n}");
-        n = n.saturating_add(1);
-    }
-    ConnectionId::new(candidate)
-        .map_err(|_| DraftError::new(Field::Label, "That name cannot be turned into an id."))
-}
+mod custom;
+mod ids;
 
 #[cfg(test)]
 mod tests;

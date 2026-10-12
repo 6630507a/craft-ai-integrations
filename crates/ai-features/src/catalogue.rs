@@ -43,8 +43,8 @@ fn feature(id: &str, title: &str, summary: &str, capability: &str) -> Option<Fea
 fn sam3() -> LocalRecipe {
     LocalRecipe {
         label: "SAM 3".to_owned(),
-        // The files can be downloaded and checked, but no ComfyUI workflow runs them yet.
-        usable: false,
+        // PhotoCraft runs it today (Object Selection, `Sam3Session` through ComfyUI).
+        usable: true,
         workflow: "sam3-segment".to_owned(),
         models: vec![ModelFile {
             folder: "sam3".to_owned(),
