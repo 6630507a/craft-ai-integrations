@@ -22,8 +22,8 @@
       "8"
     ],
     "exit_code": 0,
-    "passed": 90,
-    "ignored": 6
+    "passed": 98,
+    "ignored": 7
   },
   {
     "gate": "client-comfyui-tests",

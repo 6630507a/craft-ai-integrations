@@ -1,0 +1,67 @@
+[
+  {
+    "mutation": "box-centre-x-not-halved",
+    "caught_by_runtime_test": true,
+    "exit_code": 101
+  },
+  {
+    "mutation": "box-centre-y-not-halved",
+    "caught_by_runtime_test": true,
+    "exit_code": 101
+  },
+  {
+    "mutation": "box-width-uses-height",
+    "caught_by_runtime_test": true,
+    "exit_code": 101
+  },
+  {
+    "mutation": "box-height-uses-width",
+    "caught_by_runtime_test": true,
+    "exit_code": 101
+  },
+  {
+    "mutation": "negative-width-for-reversed-x",
+    "caught_by_runtime_test": true,
+    "exit_code": 101
+  },
+  {
+    "mutation": "negative-height-for-reversed-y",
+    "caught_by_runtime_test": true,
+    "exit_code": 101
+  },
+  {
+    "mutation": "box-marked-negative",
+    "caught_by_runtime_test": true,
+    "exit_code": 101
+  },
+  {
+    "mutation": "box-not-wired-into-segmentation",
+    "caught_by_runtime_test": true,
+    "exit_code": 101
+  },
+  {
+    "mutation": "box-node-gate-removed",
+    "caught_by_runtime_test": true,
+    "exit_code": 101
+  },
+  {
+    "mutation": "box-nodes-required-for-points",
+    "caught_by_runtime_test": true,
+    "exit_code": 101
+  },
+  {
+    "mutation": "refinement-limit-loosened",
+    "caught_by_runtime_test": true,
+    "exit_code": 101
+  },
+  {
+    "mutation": "refinement-check-disabled",
+    "caught_by_runtime_test": true,
+    "exit_code": 101
+  },
+  {
+    "mutation": "refinement-not-sent",
+    "caught_by_runtime_test": true,
+    "exit_code": 101
+  }
+]

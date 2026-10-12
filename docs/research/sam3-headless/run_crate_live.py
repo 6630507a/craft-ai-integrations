@@ -7,6 +7,7 @@ import http.server
 import json
 import os
 import subprocess
+from scrub import scrub
 import threading
 import urllib.error
 import urllib.request
@@ -87,8 +88,8 @@ try:
                '--', '--ignored', '--nocapture', '--test-threads=1']
     completed = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True, timeout=300)
     log = completed.stdout + completed.stderr
-    (EVIDENCE / 'sg1-live-rust.txt').write_text(log, encoding='utf-8')
-    print(log)
+    (EVIDENCE / 'sg1-live-rust.txt').write_text(scrub(log), encoding='utf-8')
+    print(scrub(log))
     assert completed.returncode == 0, 'Real Rust/ComfyUI verification failed'
     status, _, body = upstream('/queue')
     queue = json.loads(body)

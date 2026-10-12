@@ -254,13 +254,6 @@ fn unsupported_or_invalid_prompts_never_reach_the_server_graph_queue() {
         ..Default::default()
     };
     let cases = [
-        (
-            "box",
-            sam3::Prompt {
-                box_: Some([0.0, 0.0, 1.5, 0.9]),
-                ..Default::default()
-            },
-        ),
         ("empty", sam3::Prompt::default()),
         ("outside", sam3::Prompt::point(5.0, 0.5)),
         ("nan", sam3::Prompt::point(f32::NAN, 0.5)),
@@ -274,13 +267,6 @@ fn unsupported_or_invalid_prompts_never_reach_the_server_graph_queue() {
         1,
         "only the prepare graph was queued"
     );
-    let err = session
-        .candidates(&sam3::Prompt {
-            box_: Some([0.0, 0.0, 1.5, 0.9]),
-            ..Default::default()
-        })
-        .unwrap_err();
-    assert!(err.message.contains("points"), "{}", err.message);
 }
 
 #[test]

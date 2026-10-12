@@ -6,7 +6,7 @@ failures:
 
 ---- candidates_keep_server_order_masks_scores_and_bounds_aligned stdout ----
 
-thread 'candidates_keep_server_order_masks_scores_and_bounds_aligned' (27544) panicked at crates\ai-comfyui\tests\sam3_candidates.rs:78:5:
+thread 'candidates_keep_server_order_masks_scores_and_bounds_aligned' (57016) panicked at crates\ai-comfyui\tests\sam3_candidates.rs:78:5:
 assertion `left == right` failed
   left: [0, 255]
  right: [255, 0]
@@ -19,6 +19,6 @@ failures:
 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.01s
 
    Compiling craft-ai-comfyui v0.1.0 (%USERPROFILE%\Apps\ArtCraft\craft-ai-model\crates\ai-comfyui)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.70s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.54s
      Running tests\sam3_candidates.rs (target\debug\deps\sam3_candidates-5db244494c922527.exe)
 error: test failed, to rerun pass `-p craft-ai-comfyui --test sam3_candidates`

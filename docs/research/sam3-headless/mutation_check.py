@@ -1,11 +1,12 @@
 """Exercise sg1 safety properties by deliberate mutants, restoring source after each.
-Usage: mutation_check.py [sg1|sg2|sg2b]   (default sg1). Only this slice's files are touched. Cargo runs serially, targeted, with -j 8.
+Usage: mutation_check.py [sg1|sg2|sg2b|sg2c]   (default sg1). Only this slice's files are touched. Cargo runs serially, targeted, with -j 8.
 """
 import json
 import os
 import re
 import sys
 import subprocess
+from scrub import scrub
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -66,18 +67,34 @@ SG2B = [
     ('candidate-order-reversed', CAND_TYPES, 'masks.into_iter().zip(scores).enumerate()', 'masks.into_iter().rev().zip(scores).enumerate()', 'sam3_candidates', 'candidates_keep_server_order'),
     ('highest-scoring-picks-lowest', CAND_TYPES, '.max_by(|a, b|', '.min_by(|a, b|', 'sam3_candidates', 'candidates_keep_server_order'),
     ('point-limit-loosened', CAND_SESSION, 'const MAX_POINTS: usize = 32;', 'const MAX_POINTS: usize = 64;', 'sam3_candidates', 'unsupported_or_invalid'),
-    ('box-guard-removed', CAND_SESSION, 'if prompt.box_.is_some() {', 'if false {', 'sam3_candidates', 'unsupported_or_invalid'),
     ('segmentation-gate-removed', CAND_SESSION, 'if !prepared.segmentation {', 'if false {', 'sam3_candidates', 'a_server_missing'),
     ('positive-points-sent-as-the-wrong-list', CAND_SESSION, '"coordinates": coordinates(&prompt.positive_points),', '"coordinates": coordinates(&prompt.negative_points),', 'sam3_candidates', 'the_graph_sends_points'),
     ('multimask-off', CAND_SESSION, '"use_multimask": true', '"use_multimask": false', 'sam3_candidates', 'the_graph_sends_points'),
     ('best-mask-only', CAND_SESSION, '"output_best_mask": false', '"output_best_mask": true', 'sam3_candidates', 'the_graph_sends_points'),
 ]
+SG2C = [
+    ('box-centre-x-not-halved', CAND_SESSION, '(ax + bx) / 2.0 / w,', '(ax + bx) / w,', 'sam3_candidate_inputs', 'a_box_is_sent'),
+    ('box-centre-y-not-halved', CAND_SESSION, '(ay + by) / 2.0 / h,', '(ay + by) / h,', 'sam3_candidate_inputs', 'a_box_is_sent'),
+    ('box-width-uses-height', CAND_SESSION, '(ax - bx).abs() / w,', '(ax - bx).abs() / h,', 'sam3_candidate_inputs', 'a_box_is_sent'),
+    ('box-height-uses-width', CAND_SESSION, '(ay - by).abs() / h,', '(ay - by).abs() / w,', 'sam3_candidate_inputs', 'a_box_is_sent'),
+    ('negative-width-for-reversed-x', CAND_SESSION, '(ax - bx).abs() / w,', '(ax - bx) / w,', 'sam3_candidate_inputs', 'any_corner_order'),
+    ('negative-height-for-reversed-y', CAND_SESSION, '(ay - by).abs() / h,', '(ay - by) / h,', 'sam3_candidate_inputs', 'any_corner_order'),
+    ('box-marked-negative', CAND_SESSION, '"is_positive": true', '"is_positive": false', 'sam3_candidate_inputs', 'a_box_is_sent'),
+    ('box-not-wired-into-segmentation', CAND_SESSION, 'graph["3"]["inputs"]["box"] = json!(["12", 0]);', 'let _unused = 0;', 'sam3_candidate_inputs', 'a_box_is_sent'),
+    ('box-node-gate-removed', CAND_SESSION, 'if prompt.box_.is_some() && !prepared.boxes {', 'if false {', 'sam3_candidate_inputs', 'its_nodes_are_missing'),
+    ('box-nodes-required-for-points', CAND_SESSION, 'if prompt.box_.is_some() && !prepared.boxes {', 'if !prepared.boxes {', 'sam3_candidate_inputs', 'needs_none_installed'),
+    ('refinement-limit-loosened', CAND_SESSION, 'const MAX_REFINEMENT: u8 = 10;', 'const MAX_REFINEMENT: u8 = 11;', 'sam3_candidate_inputs', 'the_refinement_count'),
+    ('refinement-check-disabled', CAND_SESSION, 'if refinement_passes > MAX_REFINEMENT {', 'if false {', 'sam3_candidate_inputs', 'the_refinement_count'),
+    ('refinement-not-sent', CAND_SESSION, '"refinement_iterations": refinement,', '"refinement_iterations": 0,', 'sam3_candidate_inputs', 'the_refinement_count'),
+]
 if GROUP == 'sg2':
     CASES = SG2
+elif GROUP == 'sg2c':
+    CASES = SG2C
 elif GROUP == 'sg2b':
     CASES = SG2B
 elif GROUP != 'sg1':
-    raise SystemExit('group must be sg1, sg2 or sg2b')
+    raise SystemExit('group must be sg1, sg2, sg2b or sg2c')
 results = []
 for name, path, old, new, target, test in CASES:
     original = path.read_bytes()
@@ -89,7 +106,7 @@ for name, path, old, new, target, test in CASES:
         completed = subprocess.run(['cargo', 'test', '-p', 'craft-ai-comfyui', '--test', target,
                                     test, '-j', '8'], cwd=ROOT, capture_output=True, text=True, timeout=180)
         log = completed.stdout + completed.stderr
-        (OUT / ('mutation-' + name + '.txt')).write_text(log, encoding='utf-8')
+        (OUT / ('mutation-' + name + '.txt')).write_text(scrub(log), encoding='utf-8')
         caught = completed.returncode != 0 and 'test result: FAILED' in log
         results.append({'mutation': name, 'caught_by_runtime_test': caught, 'exit_code': completed.returncode})
         print(name, 'CAUGHT' if caught else 'NOT CAUGHT', flush=True)

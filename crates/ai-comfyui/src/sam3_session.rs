@@ -77,6 +77,8 @@ struct Prepared {
     preview_text: bool,
     /// The server has `SAM3Segmentation` and `SAM3PointCollector` (point candidates).
     segmentation: bool,
+    /// The server has the box helper nodes (`SAM3CreateBox`, `SAM3CombineBoxes`).
+    boxes: bool,
 }
 
 /// A single local session. Calls block and must never run on the UI thread.
@@ -164,6 +166,7 @@ impl Sam3Session {
             height,
             nonce,
             grounding: nodes.get("SAM3Grounding").is_some(),
+            boxes: nodes.get("SAM3CreateBox").is_some() && nodes.get("SAM3CombineBoxes").is_some(),
             segmentation: nodes.get("SAM3Segmentation").is_some()
                 && nodes.get("SAM3PointCollector").is_some(),
             preview_text: nodes.get("PreviewAny").is_some()

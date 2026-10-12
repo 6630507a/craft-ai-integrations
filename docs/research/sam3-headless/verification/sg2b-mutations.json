@@ -45,11 +45,6 @@
     "exit_code": 101
   },
   {
-    "mutation": "box-guard-removed",
-    "caught_by_runtime_test": true,
-    "exit_code": 101
-  },
-  {
     "mutation": "segmentation-gate-removed",
     "caught_by_runtime_test": true,
     "exit_code": 101

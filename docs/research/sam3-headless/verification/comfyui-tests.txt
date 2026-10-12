@@ -9,7 +9,7 @@ test redirected_output_is_not_fetched_or_persisted ... ok
 test oversized_output_fails_without_leaving_a_partial_asset ... ok
 test completed_video_is_saved_as_a_durable_local_handle ... ok
 
-test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
 
 
 running 3 tests
@@ -22,16 +22,16 @@ test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 running 11 tests
 test a_spec_with_an_unknown_capability_is_refused ... ok
-test inpaint_bindings_survive_the_shared_workflow_library ... ok
-test a_ui_format_export_is_refused_with_a_clear_message ... ok
-test the_library_directory_is_created_on_demand ... ok
-test workflow_specs_round_trip_through_the_library_file ... ok
-test a_damaged_library_file_is_reported_and_skipped_not_fatal ... ok
-test a_bare_api_graph_gets_defaults_and_a_derived_id ... ok
 test remove_deletes_the_file_and_only_that_file ... ok
+test a_ui_format_export_is_refused_with_a_clear_message ... ok
+test inpaint_bindings_survive_the_shared_workflow_library ... ok
+test workflow_specs_round_trip_through_the_library_file ... ok
 test a_json_file_lands_in_the_library_and_loads_back ... ok
-test oversized_files_are_refused_before_reading_the_rest ... ok
+test the_library_directory_is_created_on_demand ... ok
+test a_bare_api_graph_gets_defaults_and_a_derived_id ... ok
+test a_damaged_library_file_is_reported_and_skipped_not_fatal ... ok
 test a_second_import_with_the_same_id_replaces_the_first ... ok
+test oversized_files_are_refused_before_reading_the_rest ... ok
 
 test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
 
@@ -40,14 +40,14 @@ running 14 tests
 test unsupported_request_makes_no_traffic ... ok
 test model_probe_does_not_follow_redirect_to_another_server ... ok
 test submit_refuses_an_uninstalled_node_before_sending_prompt ... ok
-test model_probe_refuses_a_workflow_with_missing_nodes ... ok
 test cancellation_is_off_until_targeted_interrupt_is_confirmed_for_the_server ... ok
+test model_probe_refuses_a_workflow_with_missing_nodes ... ok
 test server_refusal_is_actionable_and_bounded ... ok
-test remote_http_and_missing_history_are_not_misreported_as_success ... ok
-test provider_passes_shared_conformance_without_network_for_bad_input ... ok
 test output_path_cannot_escape_to_other_local_files ... ok
-test cancellation_targets_its_own_prompt_never_global ... ok
+test remote_http_and_missing_history_are_not_misreported_as_success ... ok
 test history_gap_does_not_regress_a_running_job_to_queued ... ok
+test cancellation_targets_its_own_prompt_never_global ... ok
+test provider_passes_shared_conformance_without_network_for_bad_input ... ok
 test video_workflow_waits_then_fetches_video ... ok
 test cancelled_job_is_idempotent_and_conformant ... ok
 test image_workflow_submits_and_polls_only_its_output_node ... ok
@@ -61,15 +61,28 @@ test repeated_grounding_has_a_fresh_sink_without_invalidating_inference_nodes ..
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
 
 
+running 8 tests
+test candidates_without_a_prepared_image_still_fail_with_a_box_or_refinement ... ok
+test invalid_boxes_never_reach_the_queue ... ok
+test a_points_only_prompt_adds_no_box_nodes_and_needs_none_installed ... ok
+test a_box_and_points_travel_together ... ok
+test a_box_is_sent_as_normalised_centre_and_size_through_the_box_nodes ... ok
+test a_box_is_refused_before_anything_is_queued_when_its_nodes_are_missing ... ok
+test the_refinement_count_is_sent_and_bounded ... ok
+test any_corner_order_and_fractions_normalise_the_same_way ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+
 running 11 tests
 test candidates_need_a_prepared_image ... ok
 test unsupported_or_invalid_prompts_never_reach_the_server_graph_queue ... ok
 test more_than_three_candidates_is_refused_before_any_download ... ok
-test candidates_keep_server_order_masks_scores_and_bounds_aligned ... ok
 test the_graph_sends_points_in_pixels_and_asks_for_every_candidate ... ok
+test candidates_keep_server_order_masks_scores_and_bounds_aligned ... ok
 test a_repeat_changes_only_the_stamp_and_output_prefix ... ok
-test a_server_missing_a_required_node_is_refused_before_anything_is_queued ... ok
 test an_empty_candidate_keeps_its_place_but_all_empty_is_an_error ... ok
+test a_server_missing_a_required_node_is_refused_before_anything_is_queued ... ok
 test text_not_stamped_for_this_request_is_refused ... ok
 test a_score_count_that_differs_from_the_mask_count_fails_the_whole_result ... ok
 test malformed_scores_and_oversized_text_are_refused ... ok
@@ -79,12 +92,12 @@ test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fin
 
 running 13 tests
 test a_server_without_preview_any_is_refused_before_anything_is_queued ... ok
-test a_missing_detail_output_is_an_error_not_an_unscored_result ... ok
 test zero_detections_is_a_no_match_error_not_an_empty_result ... ok
+test a_missing_detail_output_is_an_error_not_an_unscored_result ... ok
 test picking_ignores_pixels_below_half_coverage ... ok
-test picking_chooses_the_highest_scoring_instance_covering_the_pixel ... ok
 test the_grounding_graph_reads_boxes_and_scores_through_a_request_stamped_preview ... ok
 test instances_keep_mask_box_score_and_measured_bounds_aligned ... ok
+test picking_chooses_the_highest_scoring_instance_covering_the_pixel ... ok
 test text_stamped_for_another_request_is_refused_as_stale ... ok
 test a_repeat_changes_only_the_stamp_so_a_cached_run_still_reports ... ok
 test consistent_boxes_and_scores_for_a_different_number_of_masks_fail_the_whole_result ... ok
@@ -102,17 +115,17 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 
 running 13 tests
-test non_output_later_descriptor_is_rejected_before_downloads ... ok
-test non_png_later_descriptor_is_rejected_before_downloads ... ok
 test unsafe_later_descriptor_is_rejected_before_the_first_download ... ok
 test empty_output_array_is_not_a_successful_empty_selection ... ok
-test a_failed_later_download_does_not_return_a_partial_union ... ok
-test an_empty_first_mask_does_not_hide_a_later_matching_instance ... ok
+test non_png_later_descriptor_is_rejected_before_downloads ... ok
+test non_output_later_descriptor_is_rejected_before_downloads ... ok
 test a_corrupt_later_mask_fails_instead_of_returning_the_first_instance ... ok
-test a_wrong_sized_later_mask_fails_the_whole_batch ... ok
 test all_empty_masks_remain_a_no_match_error ... ok
-test more_than_one_hundred_masks_is_refused_before_downloads ... ok
+test a_wrong_sized_later_mask_fails_the_whole_batch ... ok
 test union_preserves_soft_coverage_by_maximum_not_addition ... ok
+test an_empty_first_mask_does_not_hide_a_later_matching_instance ... ok
+test a_failed_later_download_does_not_return_a_partial_union ... ok
+test more_than_one_hundred_masks_is_refused_before_downloads ... ok
 test aggregate_encoded_byte_budget_is_not_a_per_mask_limit ... ok
 test aggregate_decoded_pixel_budget_is_checked_before_downloads ... ok
 
@@ -120,18 +133,19 @@ test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fin
 
 
 running 2 tests
-test grounding_can_preserve_individual_instances_without_merging_them ... ok
 test grounding_unions_every_instance_in_the_mapped_output ... ok
+test grounding_can_preserve_individual_instances_without_merging_them ... ok
 
 test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
 
 
-running 3 tests
+running 4 tests
+test installed_box_prompt_follows_its_box_and_refinement_passes_run ... ignored, requires the existing headless server and public-domain astronaut fixture
 test installed_candidates_offer_alternatives_for_a_click_and_repeat_identically ... ignored, requires the existing headless server and public-domain astronaut fixture
 test installed_grounding_preserves_both_eyes_and_returns_their_exact_union ... ignored, requires the existing headless server and public-domain astronaut fixture
 test installed_grounding_reports_boxes_scores_and_picks_each_eye_on_a_repeat_too ... ignored, requires the existing headless server and public-domain astronaut fixture
 
-test result: ok. 0 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
 
 running 5 tests
@@ -150,9 +164,9 @@ test installed_comfyui_prewarms_previews_and_selects_a_disc ... ignored, require
 test remote_origin_is_never_a_local_sam3_session ... ok
 test invalid_points_and_unprepared_session_never_contact_comfyui ... ok
 test unrelated_loopback_service_is_not_accepted_as_comfyui ... ok
-test grounding_a_phrase_that_matches_nothing_is_an_error_not_an_empty_selection ... ok
 test multi_point_and_box_prompts_travel_in_one_prompt ... ok
 test grounding_sends_text_and_returns_mask ... ok
+test grounding_a_phrase_that_matches_nothing_is_an_error_not_an_empty_selection ... ok
 test activation_prepares_once_then_hover_previews_and_click_returns_an_exact_mask ... ok
 test grounding_does_not_refetch_the_node_list_and_ground_first_gives_up_helpfully ... ok
 
@@ -163,9 +177,9 @@ running 6 tests
 test installation_rejects_a_missing_checkpoint_choice ... ok
 test installation_rejects_an_unavailable_node_class ... ok
 test imported_image_workflow_maps_prompt_without_changing_template ... ok
-test video_workflow_rejects_stale_node_mapping_and_unbound_inputs ... ok
 test inpaint_refuses_disconnected_mask_or_source_nodes ... ok
 test inpaint_requires_typed_source_and_mask_before_any_upload ... ok
+test video_workflow_rejects_stale_node_mapping_and_unbound_inputs ... ok
 
 test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
@@ -174,14 +188,14 @@ running 0 tests
 
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
-   Compiling craft-ai-comfyui v0.1.0 (%USERPROFILE%\Apps\ArtCraft\craft-ai-model\crates\ai-comfyui)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.96s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
      Running unittests src\lib.rs (target\debug\deps\craft_ai_comfyui-5730e1751019d89a.exe)
      Running tests\durable.rs (target\debug\deps\durable-4b460229885241d5.exe)
      Running tests\inpaint.rs (target\debug\deps\inpaint-2809a811bc38eb26.exe)
      Running tests\library.rs (target\debug\deps\library-161f8edf0645b84e.exe)
      Running tests\provider.rs (target\debug\deps\provider-43c63e451f14afc5.exe)
      Running tests\sam3_cached.rs (target\debug\deps\sam3_cached-cc3015649d313181.exe)
+     Running tests\sam3_candidate_inputs.rs (target\debug\deps\sam3_candidate_inputs-84ace87c52f682a8.exe)
      Running tests\sam3_candidates.rs (target\debug\deps\sam3_candidates-5db244494c922527.exe)
      Running tests\sam3_instances.rs (target\debug\deps\sam3_instances-100a09943c6d8490.exe)
      Running tests\sam3_mask_failures.rs (target\debug\deps\sam3_mask_failures-9b920cf9b01597dc.exe)

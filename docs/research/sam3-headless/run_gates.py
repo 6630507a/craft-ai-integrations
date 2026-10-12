@@ -2,6 +2,7 @@
 import json
 import re
 import subprocess
+from scrub import scrub
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -18,7 +19,7 @@ results = []
 for name, command in COMMANDS:
     result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=300)
     log = result.stdout + result.stderr
-    (OUT / (name + '.txt')).write_text(log, encoding='utf-8')
+    (OUT / (name + '.txt')).write_text(scrub(log), encoding='utf-8')
     row = {'gate': name, 'command': command, 'exit_code': result.returncode}
     summaries = re.findall(r'test result: ok\. (\d+) passed; (\d+) failed; (\d+) ignored;', log)
     if summaries:
@@ -28,6 +29,6 @@ for name, command in COMMANDS:
     (OUT / 'sg1-gates.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
     print(json.dumps(row), flush=True)
     if result.returncode:
-        print(log)
+        print(scrub(log))
         raise SystemExit(result.returncode)
 print('All targeted gates passed')

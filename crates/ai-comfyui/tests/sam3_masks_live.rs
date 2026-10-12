@@ -181,3 +181,67 @@ fn installed_candidates_offer_alternatives_for_a_click_and_repeat_identically() 
         summary(&with_negative)
     );
 }
+
+#[test]
+#[ignore = "requires the existing headless server and public-domain astronaut fixture"]
+fn installed_box_prompt_follows_its_box_and_refinement_passes_run() {
+    let url = std::env::var("CRAFT_TEST_COMFYUI_URL").expect("set the isolated test URL");
+    let image = std::env::var("CRAFT_TEST_SAM3_IMAGE").expect("set the public test image path");
+    let input = std::fs::read(image).unwrap();
+    let mut session = Sam3Session::new(&url).unwrap();
+    session.verify_server().unwrap();
+    session.prepare(&input).unwrap();
+    // A box around the astronaut's face (the face candidate measured [171, 75, 280, 191]).
+    let around_face = sam3::Prompt {
+        box_: Some([165.0, 70.0, 285.0, 195.0]),
+        ..Default::default()
+    };
+    let started = std::time::Instant::now();
+    let boxed = session.candidates(&around_face).unwrap();
+    let box_secs = started.elapsed().as_secs_f32();
+    assert!(!boxed.candidates().is_empty());
+    // At least one alternative follows the box: its measured bounds sit inside it, close to it.
+    let follows = boxed.candidates().iter().any(|c| {
+        c.mask_bounds().is_some_and(|[x1, y1, x2, y2]| {
+            x1 >= 160 && y1 >= 65 && x2 <= 290 && y2 <= 200 && (x2 - x1) >= 80 && (y2 - y1) >= 80
+        })
+    });
+    assert!(follows, "{:?}", boxed.candidates());
+    // A box over the empty background far from the figure must not behave like the face box.
+    let elsewhere = sam3::Prompt {
+        box_: Some([400.0, 400.0, 480.0, 480.0]),
+        ..Default::default()
+    };
+    let other = session.candidates(&elsewhere);
+    let summary = |c: &craft_ai_comfyui::Sam3Candidates| {
+        c.candidates()
+            .iter()
+            .map(|x| (x.score(), x.mask_bounds()))
+            .collect::<Vec<_>>()
+    };
+    if let Ok(other) = &other {
+        assert_ne!(summary(&boxed), summary(other), "the box must matter");
+    }
+    // A box and a point together, and refinement passes on the same click.
+    let both = sam3::Prompt {
+        positive_points: vec![(220.0, 110.0)],
+        box_: Some([165.0, 70.0, 285.0, 195.0]),
+        ..Default::default()
+    };
+    let combined = session.candidates(&both).unwrap();
+    let click = sam3::Prompt::point(220.0, 110.0);
+    let plain = session.candidates(&click).unwrap();
+    let started = std::time::Instant::now();
+    let refined = session.candidates_refined(&click, 3).unwrap();
+    let refine_secs = started.elapsed().as_secs_f32();
+    assert_eq!(refined.candidates().len(), 3);
+    assert!(refined.candidates().iter().all(|c| c.score().is_finite()));
+    println!(
+        "LIVE SAM 3 BOX/REFINE: box {box_secs:.2}s refine3 {refine_secs:.2}s\n box {:?}\n elsewhere {:?}\n box+point {:?}\n plain {:?}\n refined3 {:?}",
+        summary(&boxed),
+        other.as_ref().map(summary),
+        summary(&combined),
+        summary(&plain),
+        summary(&refined)
+    );
+}

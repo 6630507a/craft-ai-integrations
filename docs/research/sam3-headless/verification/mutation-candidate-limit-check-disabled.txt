@@ -6,7 +6,7 @@ failures:
 
 ---- more_than_three_candidates_is_refused_before_any_download stdout ----
 
-thread 'more_than_three_candidates_is_refused_before_any_download' (48740) panicked at crates\ai-comfyui\tests\sam3_candidates.rs:216:53:
+thread 'more_than_three_candidates_is_refused_before_any_download' (63656) panicked at crates\ai-comfyui\tests\sam3_candidates.rs:216:53:
 called `Result::unwrap_err()` on an `Ok` value: Sam3Candidates { width: 2, height: 1, candidates: [Sam3Candidate { index: 0, score: 0.1, mask_bounds: Some([0, 0, 1, 1]), .. }, Sam3Candidate { index: 1, score: 0.2, mask_bounds: Some([0, 0, 1, 1]), .. }, Sam3Candidate { index: 2, score: 0.3, mask_bounds: Some([0, 0, 1, 1]), .. }, Sam3Candidate { index: 3, score: 0.4, mask_bounds: Some([0, 0, 1, 1]), .. }] }
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 
@@ -26,6 +26,6 @@ warning: constant `MAX_CANDIDATES` is never used
   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
 
 warning: `craft-ai-comfyui` (lib) generated 1 warning
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.59s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.44s
      Running tests\sam3_candidates.rs (target\debug\deps\sam3_candidates-5db244494c922527.exe)
 error: test failed, to rerun pass `-p craft-ai-comfyui --test sam3_candidates`

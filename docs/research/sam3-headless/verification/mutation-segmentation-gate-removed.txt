@@ -6,7 +6,7 @@ failures:
 
 ---- a_server_missing_a_required_node_is_refused_before_anything_is_queued stdout ----
 
-thread 'a_server_missing_a_required_node_is_refused_before_anything_is_queued' (63320) panicked at crates\ai-comfyui\tests\sam3_candidates.rs:291:57:
+thread 'a_server_missing_a_required_node_is_refused_before_anything_is_queued' (46908) panicked at crates\ai-comfyui\tests\sam3_candidates.rs:277:57:
 called `Result::unwrap_err()` on an `Ok` value: Sam3Candidates { width: 2, height: 1, candidates: [Sam3Candidate { index: 0, score: 0.2, mask_bounds: Some([0, 0, 1, 1]), .. }, Sam3Candidate { index: 1, score: 0.9, mask_bounds: Some([0, 0, 2, 1]), .. }, Sam3Candidate { index: 2, score: 0.5, mask_bounds: Some([1, 0, 2, 1]), .. }] }
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 
@@ -29,6 +29,6 @@ warning: field `segmentation` is never read
    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
 
 warning: `craft-ai-comfyui` (lib) generated 1 warning
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.56s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.47s
      Running tests\sam3_candidates.rs (target\debug\deps\sam3_candidates-5db244494c922527.exe)
 error: test failed, to rerun pass `-p craft-ai-comfyui --test sam3_candidates`

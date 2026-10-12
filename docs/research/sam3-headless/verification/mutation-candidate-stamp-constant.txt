@@ -6,7 +6,7 @@ failures:
 
 ---- a_repeat_changes_only_the_stamp_and_output_prefix stdout ----
 
-thread 'a_repeat_changes_only_the_stamp_and_output_prefix' (25576) panicked at crates\ai-comfyui\tests\sam3_candidates.rs:134:5:
+thread 'a_repeat_changes_only_the_stamp_and_output_prefix' (35408) panicked at crates\ai-comfyui\tests\sam3_candidates.rs:134:5:
 assertion `left != right` failed
   left: String("craft-constant")
  right: String("craft-constant")
@@ -34,6 +34,6 @@ warning: unreachable statement
    = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
 
 warning: `craft-ai-comfyui` (lib) generated 1 warning
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.62s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.60s
      Running tests\sam3_candidates.rs (target\debug\deps\sam3_candidates-5db244494c922527.exe)
 error: test failed, to rerun pass `-p craft-ai-comfyui --test sam3_candidates`

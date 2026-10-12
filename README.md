@@ -124,8 +124,8 @@ records backend capabilities and limits, not a promise that every audited featur
    results, count/byte/pixel/dimension limits, fail-whole on a bad later mask, cache-safe repeats.
    Verified live; see `docs/research/sam3-headless/verification/`.
 2. **sg2/sg3, now:** sg2a is done (typed grounding instances: mask, detector box, score, exact
-   bounds, pick-under-pixel; live-verified). sg2b point candidates are built (the alternative
-   masks for a click, with scores). Next is box candidates and refinement, then sg3: managed prepared sessions, revision invalidation and scoped
+   bounds, pick-under-pixel) and sg2b (the alternative masks for a point and/or box prompt, with
+   scores and 0 to 10 refinement passes) are built and live-verified. Next is sg3: managed prepared sessions, revision invalidation and scoped
    cancellation. No new UI until the crate path works.
 3. **p4/p10:** bounded file-handle uploads and generic output content verification, durable assets
    and long-job reliability. A saved link is not a retained asset; an input handle is not an upload.
