@@ -227,3 +227,91 @@ fn the_same_engine_and_model_replaces_and_engines_are_listed_once() {
     assert!(registry.find("Candle", "sam3").is_some());
     assert!(registry.find("candle", "nope").is_none());
 }
+
+/// Waits until `check` is true, up to ten seconds.
+fn until(what: &str, check: impl Fn() -> bool) {
+    let end = Instant::now() + Duration::from_secs(10);
+    while !check() {
+        assert!(Instant::now() < end, "never happened: {what}");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+#[test]
+fn a_job_waiting_behind_another_says_queued_and_cancelled_it_never_runs() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut r = fake();
+    r.steps = 1_000;
+    let (loads, runs) = (r.loads.clone(), r.runs.clone());
+    let req = r.good_request().unwrap();
+    let p = provider(r, &dir);
+    let first = p.submit(&model(), &req).unwrap();
+    until("the first job runs", || runs.load(Ordering::SeqCst) == 1);
+    let second = p.submit(&model(), &req).unwrap();
+    std::thread::sleep(Duration::from_millis(30));
+    assert_eq!(p.poll(&second).unwrap().state, JobState::Queued);
+    p.cancel(&second).unwrap();
+    // The first job is long enough to still be running here however slow this machine is; end it.
+    p.cancel(&first).unwrap();
+    std::thread::sleep(Duration::from_millis(60));
+    assert_eq!(p.poll(&second).unwrap().state, JobState::Cancelled);
+    assert_eq!(
+        runs.load(Ordering::SeqCst),
+        1,
+        "the cancelled job must not run"
+    );
+    assert_eq!(loads.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn a_job_cancelled_before_its_model_is_loaded_never_loads_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut r = fake();
+    r.steps = 1_000;
+    let (loads, runs) = (r.loads.clone(), r.runs.clone());
+    let req = r.good_request().unwrap();
+    // Two models on one provider: the second is loaded only if a job for it gets to run.
+    let other = FakeRunner::new("candle", "other", "image.segment");
+    let other_loads = other.loads.clone();
+    let other_req = other.good_request().unwrap();
+    let p = EngineProvider::new(
+        "candle",
+        [
+            (Arc::new(r) as Arc<dyn ModelRunner>, weights(&dir)),
+            (Arc::new(other) as Arc<dyn ModelRunner>, weights(&dir)),
+        ],
+    );
+    let busy = p.submit(&model(), &req).unwrap();
+    until("the busy job runs", || runs.load(Ordering::SeqCst) == 1);
+    let other_job = p
+        .submit(&ModelId::new("other").unwrap(), &other_req)
+        .unwrap();
+    p.cancel(&other_job).unwrap();
+    p.cancel(&busy).unwrap();
+    std::thread::sleep(Duration::from_millis(60));
+    assert_eq!(other_loads.load(Ordering::SeqCst), 0);
+    assert_eq!(loads.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn a_burst_of_requests_is_refused_in_plain_words_and_room_returns_when_they_end() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut r = fake();
+    r.steps = 2_000;
+    let req = r.good_request().unwrap();
+    let p = provider(r, &dir);
+    let mut jobs = Vec::new();
+    let refused = loop {
+        match p.submit(&model(), &req) {
+            Ok(job) => jobs.push(job),
+            Err(e) => break e,
+        }
+        assert!(jobs.len() < 100, "nothing ever said stop");
+    };
+    assert_eq!(refused.kind, ErrorKind::RateLimited);
+    assert!(refused.message.contains("Wait for some to finish"));
+    for job in &jobs {
+        p.cancel(job).unwrap();
+    }
+    until("room again", || p.submit(&model(), &req).is_ok());
+}

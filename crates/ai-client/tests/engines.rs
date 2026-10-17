@@ -92,6 +92,35 @@ fn an_app_runs_a_built_in_model_by_asking_for_the_capability() {
 }
 
 #[test]
+fn a_second_job_reuses_the_model_the_first_one_loaded() {
+    let w = World::new();
+    w.set_up("candle");
+    let role = select_subject().role().unwrap();
+    let runner = FakeRunner::new("candle", "sam3", "image.segment");
+    let (loads, runs) = (runner.loads.clone(), runner.runs.clone());
+    let mut registry = EngineRegistry::new();
+    registry.register(runner);
+    let app = w.client("lightcraft", registry);
+    let ledger = ConsentLedger::default();
+    for _ in 0..3 {
+        // The client asks the factory for a provider on every job.
+        let plan = app.plan(&role, request()).unwrap();
+        let done = app
+            .start(&plan, &ledger)
+            .unwrap()
+            .wait(Duration::from_millis(2), Duration::from_secs(10))
+            .unwrap();
+        assert_eq!(done.state, JobState::Succeeded);
+    }
+    assert_eq!(runs.load(Ordering::SeqCst), 3);
+    assert_eq!(
+        loads.load(Ordering::SeqCst),
+        1,
+        "each job loaded the weights again"
+    );
+}
+
+#[test]
 fn an_app_without_the_engine_is_told_so_not_crashed() {
     let w = World::new();
     w.set_up("burn");

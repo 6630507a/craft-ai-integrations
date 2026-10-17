@@ -6,7 +6,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use craft_ai_core::{
@@ -16,10 +16,23 @@ use craft_ai_core::{
 
 use crate::job::Job;
 use crate::registry::EngineRegistry;
-use crate::runner::{LoadedModel, ModelRunner, RunContext};
+use crate::runner::{LoadedModel, ModelRunner};
 
 /// Finished jobs kept so a late poll still gets its answer.
 const KEEP_FINISHED: usize = 64;
+
+/// Most jobs that may be waiting or running at once. Each holds its own copy of the request
+/// (a picture, often) and a thread, so a burst is refused with a plain sentence instead.
+const MAX_PENDING: usize = 16;
+
+/// Counts a job as pending until it is dropped, however the job ends.
+struct Pending(Arc<AtomicUsize>);
+
+impl Drop for Pending {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
 
 struct Entry {
     runner: Arc<dyn ModelRunner>,
@@ -31,16 +44,24 @@ struct Entry {
 }
 
 impl Entry {
-    fn run(&self, request: &Request, ctx: &RunContext) -> Result<Vec<Output>, AiError> {
+    fn run(&self, request: &Request, job: &Job) -> Result<Vec<Output>, AiError> {
         let mut slot = self.loaded.lock().unwrap_or_else(PoisonError::into_inner);
+        // Only now is the job really running: until this point it was waiting its turn behind
+        // another job for the same model. A job cancelled while it waited never loads or runs.
+        if !job.begin() {
+            return Err(AiError::cancelled());
+        }
+        let ctx = job.context();
         if slot.is_none() {
             let weights = self.weights.clone();
             *slot = Some(guarded(|| self.runner.load(&weights))?);
         }
+        // Cancel pressed during a slow load stops here, before any work on the request.
+        ctx.check_cancelled()?;
         let Some(model) = slot.as_mut() else {
             return Err(AiError::new(ErrorKind::Internal, "the model did not load"));
         };
-        let result = guarded(|| model.run(request, ctx));
+        let result = guarded(|| model.run(request, &ctx));
         if matches!(&result, Err(e) if e.kind == ErrorKind::Internal) {
             // Whatever state it was left in, do not reuse it.
             *slot = None;
@@ -72,6 +93,7 @@ pub struct EngineProvider {
     limits: Limits,
     table: Mutex<Table>,
     next: AtomicU64,
+    pending: Arc<AtomicUsize>,
 }
 
 impl EngineProvider {
@@ -99,6 +121,7 @@ impl EngineProvider {
             limits: Limits::default(),
             table: Mutex::new(Table::default()),
             next: AtomicU64::new(0),
+            pending: Arc::default(),
         }
     }
 
@@ -187,6 +210,14 @@ impl Provider for EngineProvider {
                 entry.model.label
             )));
         }
+        if self.pending.fetch_add(1, Ordering::AcqRel) >= MAX_PENDING {
+            self.pending.fetch_sub(1, Ordering::AcqRel);
+            return Err(AiError::new(
+                ErrorKind::RateLimited,
+                "Too many requests are waiting for this model. Wait for some to finish, then try again.",
+            ));
+        }
+        let pending = Pending(self.pending.clone());
         let n = self.next.fetch_add(1, Ordering::Relaxed).saturating_add(1);
         let id = JobId::new(format!("{}-{n}", self.engine))
             .map_err(|e| AiError::new(ErrorKind::Internal, e.to_string()))?;
@@ -195,10 +226,9 @@ impl Provider for EngineProvider {
         std::thread::Builder::new()
             .name(format!("{}-{n}", self.engine))
             .spawn(move || {
-                if work.begin() {
-                    let result = entry.run(&request, &work.context());
-                    work.finish(result);
-                }
+                let _pending = pending;
+                let result = entry.run(&request, &work);
+                work.finish(result);
             })
             .map_err(|e| {
                 AiError::new(ErrorKind::Internal, format!("could not start the job: {e}"))

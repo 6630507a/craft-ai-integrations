@@ -42,6 +42,8 @@ pub struct FakeRunner {
     pub step_pause: Duration,
     pub behaviour: Behaviour,
     pub loads: Arc<AtomicUsize>,
+    /// How many times `run` was entered (a job that never started is not counted).
+    pub runs: Arc<AtomicUsize>,
     pub vendors: Vec<GpuVendor>,
     /// Never looks at Cancel, like a runner that forgot to.
     pub deaf: bool,
@@ -57,6 +59,7 @@ impl FakeRunner {
             step_pause: Duration::from_millis(5),
             behaviour: Behaviour::Succeed,
             loads: Arc::default(),
+            runs: Arc::default(),
             vendors: Vec::new(),
             deaf: false,
         }
@@ -113,6 +116,7 @@ impl ModelRunner for FakeRunner {
 
 impl LoadedModel for FakeRunner {
     fn run(&mut self, _request: &Request, ctx: &RunContext) -> Result<Vec<Output>, AiError> {
+        self.runs.fetch_add(1, Ordering::SeqCst);
         for step in 0..self.steps {
             if !self.deaf {
                 ctx.check_cancelled()?;
