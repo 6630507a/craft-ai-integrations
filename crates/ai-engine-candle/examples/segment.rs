@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! cargo run --release -p craft-ai-engine-candle --example segment -- \
-//!     <folder>/model.safetensors picture.png mask.png "the sky"
+//!     <folder>/model.safetensors picture.jpg mask.png "the sky"
 //! cargo run --release -p craft-ai-engine-candle --example segment -- \
 //!     <folder>/model.safetensors picture.png mask.png @0.5,0.4
 //! ```
@@ -20,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let [weights, picture, out, what] = args.as_slice() else {
         return Err(
-            "usage: segment <model.safetensors> <picture.png> <mask.png> <words | @x,y>".into(),
+            "usage: segment <model.safetensors> <picture.png|jpg> <mask.png> <words | @x,y>".into(),
         );
     };
     let runner: Arc<dyn ModelRunner> = Arc::new(craft_ai_engine_candle::Sam3Runner);
@@ -29,6 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut request = Request::new(CapabilityId::parse("image.segment")?).with_input(
         InputRole::Source,
+        // The engine tells PNG from JPEG by the file's first bytes; the type is only a label.
         Payload::inline("image/png", std::fs::read(picture)?)?,
     );
     request = match what.strip_prefix('@') {

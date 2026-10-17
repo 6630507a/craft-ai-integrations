@@ -1,5 +1,5 @@
-//! Pictures in and masks out: decoding a PNG source to the RGB bytes the model reads, and
-//! writing the mask as a grayscale PNG at the size of the source.
+//! Pictures in and masks out: decoding a PNG or JPEG source to the RGB bytes the model reads, and
+//! writing the mask as a grayscale PNG at the size of the (upright) source.
 
 use std::io::Cursor;
 
@@ -7,7 +7,29 @@ use craft_ai_core::AiError;
 use png::{BitDepth, ColorType, Transformations};
 
 /// Pictures larger than this are refused before any pixel is read.
-const MAX_PIXELS: u64 = 100_000_000;
+pub(crate) const MAX_PIXELS: u64 = 100_000_000;
+
+/// What a person is told when a picture cannot be read at all.
+pub(crate) const READ_FAILED: &str = "The picture could not be read. Use a PNG or a JPEG.";
+
+pub(crate) fn too_large() -> AiError {
+    AiError::invalid("The picture is too large to select from (over 100 megapixels).")
+}
+
+const PNG_START: [u8; 4] = [0x89, b'P', b'N', b'G'];
+const JPEG_START: [u8; 3] = [0xFF, 0xD8, 0xFF];
+
+/// Decodes a PNG or a JPEG, told apart by their first bytes rather than by the media type the
+/// app sent, which is often just a guess from a file name.
+pub(crate) fn decode_picture(data: &[u8]) -> Result<Rgb, AiError> {
+    if data.starts_with(&PNG_START) {
+        decode_png(data)
+    } else if data.starts_with(&JPEG_START) {
+        crate::jpeg::decode_jpeg(data)
+    } else {
+        Err(AiError::invalid(READ_FAILED))
+    }
+}
 
 /// An 8-bit RGB picture, row by row.
 pub(crate) struct Rgb {
@@ -18,16 +40,14 @@ pub(crate) struct Rgb {
 
 /// Decodes a PNG of any colour type to RGB. Transparency is dropped.
 pub(crate) fn decode_png(data: &[u8]) -> Result<Rgb, AiError> {
-    let bad = |_| AiError::invalid("The picture could not be read. Use a PNG.");
+    let bad = |_| AiError::invalid(READ_FAILED);
     let mut decoder = png::Decoder::new(Cursor::new(data));
     decoder.set_transformations(Transformations::EXPAND | Transformations::STRIP_16);
     let mut reader = decoder.read_info().map_err(bad)?;
     let info = reader.info();
     let (width, height) = (u64::from(info.width), u64::from(info.height));
     if width == 0 || height == 0 || width * height > MAX_PIXELS {
-        return Err(AiError::invalid(
-            "The picture is too large to select from (over 100 megapixels).",
-        ));
+        return Err(too_large());
     }
     let mut buffer = vec![0u8; reader.output_buffer_size()];
     let frame = reader.next_frame(&mut buffer).map_err(bad)?;
@@ -39,15 +59,11 @@ pub(crate) fn decode_png(data: &[u8]) -> Result<Rgb, AiError> {
         ColorType::Grayscale => 1,
         ColorType::GrayscaleAlpha => 2,
         ColorType::Indexed => {
-            return Err(AiError::invalid(
-                "The picture could not be read. Use a PNG.",
-            ));
+            return Err(AiError::invalid(READ_FAILED));
         }
     };
     if frame.bit_depth != BitDepth::Eight || pixels.len() < width * height * channels {
-        return Err(AiError::invalid(
-            "The picture could not be read. Use a PNG.",
-        ));
+        return Err(AiError::invalid(READ_FAILED));
     }
     let mut bytes = Vec::with_capacity(width * height * 3);
     for px in pixels.chunks_exact(channels).take(width * height) {
@@ -120,9 +136,20 @@ mod tests {
     }
 
     #[test]
-    fn something_that_is_not_a_png_is_refused_in_plain_words() {
-        let e = decode_png(b"not a picture").err().unwrap();
-        assert!(e.message.contains("PNG"));
+    fn something_that_is_not_a_picture_is_refused_in_plain_words() {
+        for bytes in [&b"not a picture"[..], b"", b"GIF89a"] {
+            let e = decode_picture(bytes).err().unwrap();
+            assert!(e.message.contains("PNG or a JPEG"), "{}", e.message);
+        }
+    }
+
+    #[test]
+    fn a_picture_is_told_by_its_first_bytes_not_by_what_the_app_called_it() {
+        let png = png_of(ColorType::Rgb, 1, 1, &[1, 2, 3]);
+        assert_eq!(decode_picture(&png).unwrap().bytes, vec![1, 2, 3]);
+        // A JPEG start with nothing behind it is a damaged JPEG, not "not a picture".
+        let e = decode_picture(&[0xFF, 0xD8, 0xFF, 0xE0]).err().unwrap();
+        assert!(e.message.contains("could not be read"));
     }
 
     #[test]

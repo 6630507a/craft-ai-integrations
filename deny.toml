@@ -35,6 +35,11 @@ allow = [
     "OFL-1.1",
     "Ubuntu-font-1.0",
 ]
+# jpeg-encoder is a dev-dependency of craft-ai-engine-candle that makes the JPEGs its tests read. It
+# carries the Independent JPEG Group licence (permissive, attribution) for its quantisation tables.
+exceptions = [
+    { allow = ["IJG"], crate = "jpeg-encoder" },
+]
 
 [bans]
 multiple-versions = "warn"

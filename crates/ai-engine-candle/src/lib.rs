@@ -52,6 +52,7 @@ mod vit;
 mod weights;
 
 mod image_io;
+mod jpeg;
 mod runner;
 
 pub use runner::{Sam3Runner, runners};

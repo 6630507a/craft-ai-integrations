@@ -1,8 +1,10 @@
 //! SAM 3 on Candle as a [`ModelRunner`]: the whole of what an app gets.
 //!
-//! The request is the shared `image.segment` one: a PNG `source`, and either a `prompt` (a noun
-//! phrase) or `points` in params (`[{"x": 0.5, "y": 0.4, "positive": true}]`, normalised to the
-//! picture). The answer is one grayscale PNG mask the size of the source, white where selected.
+//! The request is the shared `image.segment` one: a PNG or JPEG `source` (told apart by its first
+//! bytes), and either a `prompt` (a noun phrase) or `points` in params (`[{"x": 0.5, "y": 0.4,
+//! "positive": true}]`, normalised to the picture). The answer is one grayscale PNG mask the size
+//! of the picture as a person sees it, white where selected. A JPEG's EXIF turn is applied, so a
+//! phone photo taken sideways comes back upright and the mask is upright too; a PNG is as stored.
 //! `threshold` (0..1, default 0.5) sets how sure a match must be for a text prompt.
 
 use std::collections::hash_map::DefaultHasher;
@@ -18,7 +20,7 @@ use craft_ai_engine::{LoadedModel, ModelRunner, RunContext};
 use craft_ai_features::GpuVendor;
 use serde_json::Value;
 
-use crate::image_io::{decode_png, encode_mask};
+use crate::image_io::{decode_picture, encode_mask};
 use crate::{Click, Encoded, Sam3, WEIGHTS_FILE, is_model_dir, mask};
 
 /// Most clicks one request may carry.
@@ -117,7 +119,7 @@ impl LoadedModel for Loaded {
                 "SAM 3 needs the picture itself, not a link to it.",
             ));
         };
-        let picture = decode_png(data)?;
+        let picture = decode_picture(data)?;
         ctx.progress(5);
         ctx.check_cancelled()?;
 

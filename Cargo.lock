@@ -916,6 +916,8 @@ dependencies = [
  "craft-ai-core",
  "craft-ai-engine",
  "craft-ai-features",
+ "image",
+ "jpeg-encoder",
  "png 0.17.16",
  "serde_json",
  "tempfile",
@@ -2241,6 +2243,8 @@ dependencies = [
  "num-traits",
  "png 0.18.1",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -2345,6 +2349,12 @@ dependencies = [
  "getrandom 0.4.3",
  "libc",
 ]
+
+[[package]]
+name = "jpeg-encoder"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b454d911ac55068f53495488d8ccd0646eaa540c033a28ee15b07838afafb01f"
 
 [[package]]
 name = "js-sys"
