@@ -46,6 +46,7 @@ mod declarative;
 mod engine;
 mod engines;
 mod factory;
+mod folders;
 mod history;
 mod local;
 mod manage;
@@ -58,6 +59,7 @@ mod tools;
 pub use client::{AiClient, Choice, Finished, Job, PickedChoice, Plan, RoleReady, RoleStatus};
 pub use craft_ai_engine::{EngineRegistry, LoadedModel, ModelRunner, RunContext};
 pub use factory::{BuildFn, ProviderFactory};
+pub use folders::{FolderAdded, FolderDesk};
 pub use local::{LocalEnabled, LocalRoute};
 pub use manage::{
     Confirmed, ConnectionManager, ConnectionView, KeyState, MAX_DECLARED, ModelChoice, ProbeReport,
