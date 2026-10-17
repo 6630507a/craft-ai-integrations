@@ -57,8 +57,7 @@ impl Kept {
         let mut shape = connection.provider.to_ascii_lowercase();
         for model in &connection.models {
             shape.push_str(&format!(
-                "
-{}	{}",
+                "\n{}\t{}",
                 model.id,
                 model.local_file.as_deref().unwrap_or_default()
             ));
