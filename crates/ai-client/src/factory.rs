@@ -186,7 +186,9 @@ impl ProviderFactory {
         f
     }
 
-    /// Adds or replaces the adapter for a provider name.
+    /// Adds or replaces the adapter for a provider name. Replacing one forgets what
+    /// [`declare_accelerators`](Self::declare_accelerators) said about the old one, so declare
+    /// after registering.
     pub fn register(
         &mut self,
         name: &str,
@@ -195,8 +197,19 @@ impl ProviderFactory {
         + Sync
         + 'static,
     ) {
-        self.builders
-            .insert(name.to_ascii_lowercase(), Arc::new(build));
+        let name = name.to_ascii_lowercase();
+        // A different build of the adapter is not the one whose cards were declared.
+        self.accelerators.remove(&name);
+        self.builders.insert(name, Arc::new(build));
+    }
+
+    /// Removes the adapter for a provider name, and what was declared for it. An app uses this to
+    /// turn off something its build would otherwise offer (a built-in engine, for example); the
+    /// name is then reported as one this app cannot run.
+    pub fn unregister(&mut self, name: &str) {
+        let name = name.to_ascii_lowercase();
+        self.builders.remove(&name);
+        self.accelerators.remove(&name);
     }
 
     /// Points data-described services at a specific folder of settings files (one file per
@@ -427,6 +440,21 @@ mod tests {
                 .build(&conn("ollama", Some("http://127.0.0.1:11434/v1")), None)
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn replacing_an_adapter_forgets_its_declared_cards_and_unregister_removes_both() {
+        let mut f = ProviderFactory::standard();
+        f.register("engine-x", |_, _| Err(AiError::unsupported("stub")));
+        f.declare_accelerators("engine-x", &[GpuVendor::Nvidia]);
+        assert_eq!(f.accelerators("ENGINE-X"), Some(&[GpuVendor::Nvidia][..]));
+        // Someone else's build of the same name: the old statement no longer applies.
+        f.register("engine-x", |_, _| Err(AiError::unsupported("other")));
+        assert_eq!(f.accelerators("engine-x"), None);
+        f.declare_accelerators("engine-x", &[]);
+        f.unregister("Engine-X");
+        assert!(!f.knows("engine-x") && f.accelerators("engine-x").is_none());
+        f.unregister("never-there"); // not an error
     }
 
     #[test]
