@@ -46,11 +46,13 @@ mod declarative;
 mod engine;
 mod engines;
 mod factory;
+mod folders;
 mod history;
 mod local;
 mod manage;
 mod picker;
 mod picker_groups;
+mod picker_presets;
 mod popup;
 mod runner;
 mod tools;
@@ -58,12 +60,16 @@ mod tools;
 pub use client::{AiClient, Choice, Finished, Job, PickedChoice, Plan, RoleReady, RoleStatus};
 pub use craft_ai_engine::{EngineRegistry, LoadedModel, ModelRunner, RunContext};
 pub use factory::{BuildFn, ProviderFactory};
+pub use folders::{FolderAdded, FolderDesk};
 pub use local::{LocalEnabled, LocalRoute};
 pub use manage::{
     Confirmed, ConnectionManager, ConnectionView, KeyState, MAX_DECLARED, ModelChoice, ProbeReport,
     ProbedModel, Removed, SaveError, Saved, TestReport, Unconfirmed, declare_models,
 };
-pub use picker::{CurrentChoice, GroupState, PickerGroup, PickerModel, PickerView, SetupLink};
+pub use picker::{
+    CurrentChoice, GroupState, PickerGroup, PickerModel, PickerPreset, PickerView, SetupLink,
+};
+pub use picker_presets::pick_label;
 pub use popup::MissingModel;
 pub use runner::{TestRunner, TestTarget};
 pub use tools::{Accepted, SampleReport, Skipped, TestStart, ToolDesk, ToolView};
