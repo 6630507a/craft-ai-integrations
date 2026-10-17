@@ -110,6 +110,17 @@ fn try_builtin() -> Option<Vec<Feature>> {
     select.inputs = vec![InputRole::Source, InputRole::Prompt];
     select.local = Some(sam3());
 
+    let mut background = feature(
+        "remove-background",
+        "Remove background",
+        "Cut the subject out and leave the background transparent.",
+        "image.matte",
+    )?;
+    background.inputs = vec![InputRole::Source];
+    background.uses = uses(&[("PhotoCraft", "Remove Background")]);
+    // No local recipe and no hosted route yet: no adapter here matts an image, and no model file
+    // has been checked against its real source. The screen says so instead of offering a guess.
+
     let mut remove = feature(
         "remove-object",
         "Remove objects",
@@ -217,5 +228,7 @@ fn try_builtin() -> Option<Vec<Feature>> {
         ),
     ];
 
-    Some(vec![select, remove, fill, expand, extend, image, video])
+    Some(vec![
+        select, background, remove, fill, expand, extend, image, video,
+    ])
 }
