@@ -125,14 +125,16 @@ fn sam3() -> LocalRecipe {
             NativeRoute {
                 provider: "candle".to_owned(),
                 model: "sam3".to_owned(),
-                label: "SAM 3, built in (Nvidia or Apple graphics)".to_owned(),
+                label: "SAM 3, built in (Apple graphics, otherwise the processor)".to_owned(),
                 models: sam3_transformers_files(),
             },
             NativeRoute {
                 provider: "burn".to_owned(),
                 model: "sam3".to_owned(),
+                // No Burn code exists yet, so no files are named for it: a route that cannot run must not
+                // offer a 3.4 GB download.
                 label: "SAM 3, built in (any graphics card)".to_owned(),
-                models: sam3_transformers_files(),
+                models: Vec::new(),
             },
         ],
     }

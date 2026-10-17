@@ -5,6 +5,12 @@ all-features = true
 
 [advisories]
 yanked = "deny"
+ignore = [
+    { id = "RUSTSEC-2026-0367", reason = "candle-core pulls in zip for its PyTorch and npz loaders. This workspace reads safetensors only and never extracts an archive, so the extract() flaw cannot be reached. Remove when candle moves to zip 9 or later." },
+    { id = "RUSTSEC-2026-0368", reason = "candle-core pulls in zip for its PyTorch and npz loaders. This workspace reads safetensors only and never extracts an archive, so the extract() flaw cannot be reached. Remove when candle moves to zip 9 or later." },
+    { id = "RUSTSEC-2026-0369", reason = "candle-core pulls in zip for its PyTorch and npz loaders. This workspace reads safetensors only and never extracts an archive, so the extract() flaw cannot be reached. Remove when candle moves to zip 9 or later." },
+    { id = "RUSTSEC-2024-0436", reason = "paste is unmaintained and arrives through the gemm, pulp and metal crates that candle-core uses. It is a compile-time macro with no known flaw. Remove when candle drops it." },
+]
 
 [licenses]
 confidence-threshold = 0.93

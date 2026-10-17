@@ -14,7 +14,7 @@ fn every_built_in_sam3_runtime_names_its_own_complete_files() {
     let feature = select_subject();
     let recipe = feature.local.as_ref().unwrap();
     let comfy: Vec<&str> = recipe.models.iter().map(|m| m.filename.as_str()).collect();
-    for route in &recipe.native {
+    for route in recipe.native.iter().filter(|r| r.provider == "candle") {
         let weights = route.weights().unwrap();
         assert_eq!(weights.filename, "model.safetensors", "{}", route.provider);
         assert!(!comfy.contains(&weights.filename.as_str()));
@@ -49,4 +49,13 @@ fn a_route_without_files_of_its_own_has_no_weights() {
     route.models.clear();
     assert!(route.weights().is_none());
     assert_eq!(route.total_bytes(), 0);
+}
+
+#[test]
+fn a_runtime_with_no_code_yet_offers_no_download() {
+    let feature = select_subject();
+    let recipe = feature.local.as_ref().unwrap();
+    let burn = recipe.native.iter().find(|r| r.provider == "burn").unwrap();
+    assert!(burn.models.is_empty() && burn.weights().is_none());
+    assert_eq!(burn.total_bytes(), 0);
 }
