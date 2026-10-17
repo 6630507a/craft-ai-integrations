@@ -728,6 +728,7 @@ dependencies = [
  "craft-ai-comfyui",
  "craft-ai-core",
  "craft-ai-declarative",
+ "craft-ai-engine",
  "craft-ai-features",
  "craft-ai-media",
  "craft-ai-native",
@@ -808,6 +809,16 @@ dependencies = [
  "eframe",
  "egui",
  "egui_kittest",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "craft-ai-engine"
+version = "0.1.0"
+dependencies = [
+ "craft-ai-core",
+ "craft-ai-features",
  "serde_json",
  "tempfile",
 ]

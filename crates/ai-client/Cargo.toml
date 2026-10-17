@@ -21,6 +21,7 @@ craft-ai-seedance = { path = "../ai-seedance", package = "craft-ai-seedance" }
 craft-ai-vertex = { path = "../ai-vertex", package = "craft-ai-vertex" }
 craft-ai-sam3 = { path = "../ai-sam3", package = "craft-ai-sam3" }
 craft-ai-declarative = { path = "../ai-declarative", package = "craft-ai-declarative" }
+craft-ai-engine = { path = "../ai-engine", package = "craft-ai-engine" }
 
 [dev-dependencies]
 serde_json.workspace = true

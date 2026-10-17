@@ -44,6 +44,7 @@
 mod client;
 mod declarative;
 mod engine;
+mod engines;
 mod factory;
 mod history;
 mod local;
@@ -55,6 +56,7 @@ mod runner;
 mod tools;
 
 pub use client::{AiClient, Choice, Finished, Job, PickedChoice, Plan, RoleReady, RoleStatus};
+pub use craft_ai_engine::{EngineRegistry, LoadedModel, ModelRunner, RunContext};
 pub use factory::{BuildFn, ProviderFactory};
 pub use local::{LocalEnabled, LocalRoute};
 pub use manage::{
