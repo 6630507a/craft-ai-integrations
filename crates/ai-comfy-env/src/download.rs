@@ -8,6 +8,8 @@
 //! - A Hugging Face token is sent only to `auth_host`. A redirect to the storage host that
 //!   actually serves the bytes gets no `Authorization` header.
 //! - Every hop passes the shared link rules (https, no user-info, no internal addresses).
+//! - The agent carries no proxy; a hop that is not loopback may use the environment's proxy,
+//!   so an allowed loopback source never sends its requests (token included) to a proxy host.
 //! - The transfer never writes more than the recipe's size.
 //!
 //! The link handling (redirects, host rules, token scoping) is in `transport`; this file holds the
@@ -100,6 +102,7 @@ impl Downloader {
         let agent = ureq::Agent::new_with_config(
             ureq::Agent::config_builder()
                 .tls_config(craft_ai_http::tls_config())
+                .proxy(craft_ai_http::loopback_proxy())
                 .http_status_as_error(false)
                 .max_redirects(0)
                 .max_redirects_will_error(false)

@@ -838,6 +838,7 @@ dependencies = [
 name = "craft-ai-http"
 version = "0.1.0"
 dependencies = [
+ "craft-ai-core",
  "ureq",
 ]
 
