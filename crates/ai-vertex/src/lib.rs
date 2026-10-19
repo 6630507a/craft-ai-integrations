@@ -92,6 +92,7 @@ impl VertexProvider {
             sequence: AtomicU64::new(0),
         })
     }
+    /// Guards the job registry, or reports a poisoned lock.
     fn lock(
         &self,
     ) -> Result<std::sync::MutexGuard<'_, HashMap<JobId, Option<JobSnapshot>>>, AiError> {
@@ -109,6 +110,7 @@ impl VertexProvider {
             self.base
         )
     }
+    /// Sends one prompt and returns the reply's first inline image, bounded to 48 MiB.
     fn generate(&self, prompt: &str) -> Result<Payload, AiError> {
         let request = json!({"contents":[{"role":"user","parts":[{"text":prompt}]}],
             "generationConfig":{"responseModalities":["TEXT","IMAGE"]}});

@@ -33,6 +33,9 @@ CATALOG = C + 'ai-openai/src/catalog.rs'
 PROBE_C = C + 'ai-client/src/manage/probe.rs'
 MANAGE = C + 'ai-client/src/manage.rs'
 FACTORY = C + 'ai-client/src/factory.rs'
+CHAT = C + 'ai-openai/src/chat.rs'
+STREAM = C + 'ai-openai/src/stream.rs'
+JOBS = C + 'ai-openai/src/jobs.rs'
 
 PACK = C + 'ai-comfy-env/src/source/pack/mod.rs'
 PACK_RESOLVE = C + 'ai-comfy-env/src/source/pack/resolve.rs'
@@ -97,6 +100,15 @@ U1 = [
     ('declared-limit-unchecked', PROBE_C, 'if choices.len() > MAX_DECLARED {', 'if false {', CL, 'custom', 'declared_models_are_checked'),
     ('test-replaces-declared-models', MANAGE, 'if remember && report.probe.is_none() {', 'if remember {', CL, 'custom', 'never_replaces_declared'),
     ('factory-drops-header', FACTORY, 'config.key_header = connection.key_header.clone();', 'config.key_header = None;', CL, 'custom', 'named_header_from_the_saved'),
+    # C5 of the 2026-10-17 audit: a streamed reply is bounded twice - by the bytes it may keep
+    # (stream.rs, the same total as a whole reply) and by the events one job may hold unpollled
+    # (jobs.rs) - and the worker stops reading a stream whose job is dead.
+    ('stream-total-unchecked', STREAM, 'if self.kept() > self.cap {', 'if false {', O, 'lib', 'past_its_total'),
+    ('stream-total-cap-unlimited', STREAM, 'cap: MAX_STREAM_TOTAL,', 'cap: usize::MAX,', O, 'lib', 'past_its_total'),
+    ('event-backlog-unchecked', JOBS, 'if g.events.len() >= MAX_EVENTS {', 'if false {', O, 'lib', 'backlog_past_the_cap'),
+    ('event-backlog-cap-loosened', JOBS, 'const MAX_EVENTS: usize = 65_536;', 'const MAX_EVENTS: usize = 65_537;', O, 'lib', 'backlog_past_the_cap'),
+    ('event-backlog-kept-on-failure', JOBS, 'g.events.clear();\n            return;', 'return;', O, 'lib', 'backlog_past_the_cap'),
+    ('dead-cell-still-read', JOBS, 'if cell.is_terminal() {', 'if false {', O, 'provider', 'unpolled_firehose'),
 ]
 
 E = 'craft-ai-comfy-env'
