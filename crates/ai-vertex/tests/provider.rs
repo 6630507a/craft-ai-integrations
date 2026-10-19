@@ -13,10 +13,15 @@ use support::{Reply, Server};
 fn image_generation_uses_express_key_and_returns_inline_image() {
     let s = Server::start(|r| {
         assert_eq!(r.method, "POST");
+        // The key must never appear in the URL: request lines are what TLS-intercepting
+        // proxies and access logs record, and SECURITY.md lists a key reaching a log as
+        // reportable. It travels in the x-goog-api-key header instead.
         assert_eq!(
             r.path,
-            "/v1/publishers/google/models/gemini-2.5-flash-image:generateContent?key=test-key"
+            "/v1/publishers/google/models/gemini-2.5-flash-image:generateContent"
         );
+        assert!(!r.path.contains("test-key"));
+        assert_eq!(r.header("x-goog-api-key"), Some("test-key"));
         assert_eq!(
             r.body_json(),
             json!({"contents":[{"role":"user","parts":[{"text":"a fox"}]}],"generationConfig":{"responseModalities":["TEXT","IMAGE"]}})

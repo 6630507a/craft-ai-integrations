@@ -99,17 +99,13 @@ impl VertexProvider {
             .lock()
             .map_err(|_| AiError::new(ErrorKind::Internal, "Vertex job registry unavailable"))
     }
+    /// The key is sent only in the `x-goog-api-key` header, never in the URL: request lines are
+    /// what TLS-intercepting proxies and access logs record, and SECURITY.md lists a key
+    /// reaching a log as reportable. Header injection cannot occur because the key was validated
+    /// at construction to contain no control characters or whitespace.
     fn url(&self) -> String {
-        let mut key = String::new();
-        for byte in self.key.expose().bytes() {
-            if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
-                key.push(char::from(byte));
-            } else {
-                key.push_str(&format!("%{byte:02X}"));
-            }
-        }
         format!(
-            "{}/publishers/google/models/{MODEL}:generateContent?key={key}",
+            "{}/publishers/google/models/{MODEL}:generateContent",
             self.base
         )
     }
@@ -121,6 +117,7 @@ impl VertexProvider {
         let response = self
             .agent
             .post(self.url())
+            .header("x-goog-api-key", self.key.expose())
             .content_type("application/json")
             .send(&body)
             .map_err(|_| AiError::new(ErrorKind::Network, "could not reach Vertex"))?;

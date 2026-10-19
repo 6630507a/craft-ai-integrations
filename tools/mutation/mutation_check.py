@@ -6,7 +6,7 @@ source back. A case is CAUGHT only if the mutated code compiled and the test run
 does not compile counts as NOT CAUGHT (a bad mutant), so every survivor is either a test gap or a
 mutant to fix. Cargo runs serially, targeted with -p, with -j 8.
 
-Usage: mutation_check.py u1|u3|u4|p4|p10|v1|v2|v3|sd|lc|lr|nr|ct|u2|wf [name-substring]
+Usage: mutation_check.py u1|u3|u4|p4|p10|v1|v2|v3|sd|vx|lc|lr|nr|ct|u2|wf [name-substring]
 Saved logs pass through scrub.py so no Windows account name is written. Run it from anywhere;
 logs land in tools/mutation/verification/, which is not committed.
 """
@@ -370,6 +370,15 @@ SD = [
     ('preset-named-volcengine', DRAFT_RS, 'name: "Seedance (BytePlus ModelArk)",', 'name: "Seedance (Volcengine Ark)",', M, 'lib', 'seedance_connects'),
 ]
 
+VTX_LIB = C + 'ai-vertex/src/lib.rs'
+VTXC = 'craft-ai-vertex'
+# vx: the Vertex express adapter sends its key in a header, never in the URL (ai-vertex/tests/provider.rs).
+# A request line is what TLS-intercepting proxies and access logs record (C4 of the 2026-10-17 audit).
+VX = [
+    ('vertex-key-back-in-url', VTX_LIB, '"{}/publishers/google/models/{MODEL}:generateContent",\n            self.base', '"{}/publishers/google/models/{MODEL}:generateContent?key={}",\n            self.base,\n            self.key.expose()', VTXC, 'provider', ''),
+    ('vertex-key-header-dropped', VTX_LIB, '.header("x-goog-api-key", self.key.expose())', '', VTXC, 'provider', ''),
+]
+
 LOCAL_RS = C + 'ai-client/src/local.rs'
 # lc: a tool's local model as a connection an app can read (ai-client/tests/local.rs)
 LC = [
@@ -477,7 +486,7 @@ WF = [
     ('library-save-overwrites-foreign-workflow', WF_LIBRARY, 'if path.exists() && !stale.iter().any(|existing| existing == &path) {', 'if false && path.exists() && !stale.iter().any(|existing| existing == &path) {', COMFY, 'library', 'another_workflow'),
     ('library-save-ignores-scan-failure', WF_LIBRARY, 'let stale = self.files_storing(&id)?;', 'let stale = self.files_storing(&id).unwrap_or_default();', COMFY, 'library', 'save_refuses_when_the_directory'),
 ]
-GROUPS = {'lg': LG, 'ps': PS, 'ct': CT, 'u2': U2, 'nr': NR, 'u1': U1, 'u3': U3, 'u4': U4, 'p4': P4, 'p10': P10, 'v1': V1, 'v2': V2, 'v3': V3, 'sd': SD, 'lc': LC, 'lr': LR, 'wf': WF}
+GROUPS = {'lg': LG, 'ps': PS, 'ct': CT, 'u2': U2, 'nr': NR, 'u1': U1, 'u3': U3, 'u4': U4, 'p4': P4, 'p10': P10, 'v1': V1, 'v2': V2, 'v3': V3, 'sd': SD, 'vx': VX, 'lc': LC, 'lr': LR, 'wf': WF}
 # Mutants whose effect is also refused by a second, independent check on this machine. They are
 # recorded as equivalent here, with the reason, and are never counted as caught.
 EQUIVALENT = {
