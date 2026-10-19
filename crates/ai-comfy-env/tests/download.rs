@@ -501,6 +501,52 @@ fn a_part_file_bigger_than_the_model_is_thrown_away_and_the_download_starts_agai
 }
 
 #[test]
+#[cfg(unix)]
+fn a_part_file_in_a_read_only_folder_is_named_and_left_alone() {
+    use std::os::unix::fs::PermissionsExt;
+    let data = body();
+    let server = range_server(data.clone(), true);
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("m.safetensors.part"),
+        vec![9u8; data.len() + 10],
+    )
+    .unwrap();
+    // A folder without write permission refuses deletion on Unix - except for a root
+    // process, which bypasses permission bits. Probe with a separate folder and skip
+    // where the premise does not hold, rather than fail there. The folder is restored
+    // afterwards so the temporary folder cleans up.
+    let probe_dir = tempfile::tempdir().unwrap();
+    std::fs::write(probe_dir.path().join("probe"), b"x").unwrap();
+    std::fs::set_permissions(probe_dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+    let read_only_refuses_deletion = std::fs::remove_file(probe_dir.path().join("probe")).is_err();
+    std::fs::set_permissions(probe_dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    if !read_only_refuses_deletion {
+        eprintln!("skipped: this process deletes from a read-only folder");
+        return;
+    }
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+    unclearable_part_check(&data, dir.path(), &server);
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+/// A stale part bigger than the recipe that cannot be deleted either must be reported
+/// by name: the alternative is another attempt on unchanged state, which recursed
+/// until the stack gave out and took the whole process down with it.
+///
+/// The removal failure is injected with a read-only folder, so this runs on Unix
+/// only; nothing in std makes remove_file fail on Windows any more (a read-only
+/// attribute, an open handle and a range lock are all bypassed by its POSIX-semantics
+/// delete), so the rule is pinned there by the mutation case instead.
+fn unclearable_part_check(data: &[u8], dir: &Path, server: &Server) {
+    let file = model(data, &format!("{}/m", origin(server)));
+    let (result, _) = run(&downloader(), &file, dir, None, &AtomicBool::new(false));
+    let err = result.unwrap_err();
+    assert!(err.message.contains("could not clear"), "{}", err.message);
+    assert_eq!(names(dir), ["m.safetensors.part"]);
+}
+
+#[test]
 fn a_server_that_resumes_at_the_wrong_place_is_refused_by_name() {
     let data = body();
     let served = data.clone();

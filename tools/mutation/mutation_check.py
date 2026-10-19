@@ -123,6 +123,12 @@ U3 = [
     ('download-hosts-unchecked', TRANSPORT, 'if !allowed.iter().any(|pattern| host_matches(pattern, host)) {', 'if false {', E, 'download_sources', 'allowed_hosts'),
     ('size-probe-asks-for-more', TRANSPORT, 'Some("bytes=0-0".to_owned())', 'Some("bytes=0-1".to_owned())', E, 'download_sources', 'one_byte_range'),
     ('size-probe-accepts-zero', TRANSPORT, '.filter(|s| *s > 0)', '.filter(|_| true)', E, 'download_sources', 'one_byte_range'),
+    # The original oversized-part bug recursed until the stack gave out; that shape aborts the
+    # test binary before it can print a summary, so the two halves are pinned separately: the
+    # discarded clear failure (caught by the read-only-folder test on Unix) and the missing
+    # size reset (caught by the throw-away-and-start-again test everywhere).
+    ('download-unclearable-part-discarded', DOWNLOAD, 'std::fs::remove_file(part).map_err(|_| {\n                AiError::new(\n                    ErrorKind::Internal,\n                    "could not clear the oversized unfinished download; delete the .part file manually or check the model folder",\n                )\n            })?;\n            have = 0;', 'let _ = std::fs::remove_file(part);\n            have = 0;', E, 'download', 'read_only_folder'),
+    ('download-part-size-not-reset', DOWNLOAD, '})?;\n            have = 0;\n        }', '})?;\n        }', E, 'download', 'bigger_than_the_model'),
     ('commit-not-required', HF, '.filter(|s| is_hex(s, 40) && s.bytes().all(|b| !b.is_ascii_uppercase()))', '.filter(|_| true)', E, 'source_resolve', 'asked_file_are_refused'),
     ('lfs-size-mismatch-ignored', HF, '.is_some_and(|s| s != size)', '.is_some_and(|s| s == 0)', E, 'source_resolve', 'host_got_wrong'),
     ('lfs-checksum-unchecked', HF, '.filter(|o| is_hex(o, 64))', '.filter(|_| true)', E, 'source_resolve', 'host_got_wrong'),

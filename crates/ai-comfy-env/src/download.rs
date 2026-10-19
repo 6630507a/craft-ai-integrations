@@ -223,10 +223,19 @@ impl Downloader {
         cancel: &AtomicBool,
         progress: &mut dyn FnMut(Progress),
     ) -> Result<Attempt, AiError> {
-        let have = std::fs::metadata(part).map(|m| m.len()).unwrap_or(0);
+        let mut have = std::fs::metadata(part).map(|m| m.len()).unwrap_or(0);
         if have > file.size_bytes {
-            let _ = std::fs::remove_file(part);
-            return self.attempt(file, part, token, cancel, progress);
+            // A part bigger than the promised file can only be cleared, never resumed;
+            // and a part that cannot be cleared either must fail, not start over on
+            // unchanged state, which recursed until the stack gave out and took the
+            // whole process down with it.
+            std::fs::remove_file(part).map_err(|_| {
+                AiError::new(
+                    ErrorKind::Internal,
+                    "could not clear the oversized unfinished download; delete the .part file manually or check the model folder",
+                )
+            })?;
+            have = 0;
         }
         if have == file.size_bytes {
             return Ok(Attempt::Done);
