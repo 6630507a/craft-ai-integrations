@@ -45,6 +45,9 @@ HOSTS = C + 'ai-comfy-env/src/source/hosts.rs'
 FORMAT = C + 'ai-comfy-env/src/source/format.rs'
 SPEC = C + 'ai-comfy-env/src/source/spec.rs'
 DOWNLOAD = C + 'ai-comfy-env/src/download.rs'
+SAM21 = C + 'ai-comfyui/src/sam21_session.rs'
+DETECTOR = C + 'ai-comfyui/src/detector.rs'
+CU = 'craft-ai-comfyui'
 SCAN = C + 'ai-comfy-env/src/scan.rs'
 TRANSPORT = C + 'ai-comfy-env/src/download/transport.rs'
 HF = C + 'ai-comfy-env/src/source/resolve/hf.rs'
@@ -506,7 +509,21 @@ WF = [
     ('library-save-overwrites-foreign-workflow', WF_LIBRARY, 'if path.exists() && !stale.iter().any(|existing| existing == &path) {', 'if false && path.exists() && !stale.iter().any(|existing| existing == &path) {', COMFY, 'library', 'another_workflow'),
     ('library-save-ignores-scan-failure', WF_LIBRARY, 'let stale = self.files_storing(&id)?;', 'let stale = self.files_storing(&id).unwrap_or_default();', COMFY, 'library', 'save_refuses_when_the_directory'),
 ]
-GROUPS = {'ca': CA, 'lg': LG, 'ps': PS, 'ct': CT, 'u2': U2, 'nr': NR, 'u1': U1, 'u3': U3, 'u4': U4, 'p4': P4, 'p10': P10, 'v1': V1, 'v2': V2, 'v3': V3, 'sd': SD, 'vx': VX, 'lc': LC, 'lr': LR, 'wf': WF}
+# s21: SAM 2.1 selects through Florence-2-large; ComfyUI must list that detector before anything is uploaded.
+S21 = [
+    ('detector-check-skipped', SAM21, 'crate::detector::require_detector(&nodes)?;', '', CU, 'sam21_session', ''),
+    ('wrong-detector-asked-for', DETECTOR, 'pub const FLORENCE2_DETECTOR: &str = "Florence-2-large";', 'pub const FLORENCE2_DETECTOR: &str = "Florence-2-base";', CU, 'sam21_session', ''),
+    ('any-listed-detector-accepted', DETECTOR, 'c.as_str() == Some(FLORENCE2_DETECTOR)', 'c.as_str().is_some()', CU, 'sam21_session', ''),
+    ('cpu-run-on-cuda', SAM21, 'Some("cpu") => Ok(("cpu", "fp32")),', 'Some("cpu") => Ok(("cuda", "fp16")),', CU, 'sam21_session', 'uses_the_device'),
+    ('half-precision-off-cuda', SAM21, 'Some("mps") => Ok(("mps", "fp32")),', 'Some("mps") => Ok(("mps", "fp16")),', CU, 'sam21_session', 'uses_the_device'),
+    ('missing-device-assumed-cuda', SAM21, 'stats.pointer("/devices/0/type").and_then(Value::as_str) {', 'stats.pointer("/devices/0/type").and_then(Value::as_str).or(Some("cuda")) {', CU, 'sam21_session', 'unsupported_device'),
+    ('unknown-device-assumed-cuda', SAM21, 'stats.pointer("/devices/0/type").and_then(Value::as_str) {', 'stats.pointer("/devices/0/type").and_then(Value::as_str).map(|d| if d == "xpu" { "cuda" } else { d }) {', CU, 'sam21_session', 'unsupported_device'),
+    ('result-errors-name-sam3', SAM21, 'e.message.replace("SAM 3", "SAM 2.1")', 'e.message', CU, 'sam21_session', 'not_sam_3'),
+    ('only-the-last-box-kept', SAM21, '"individual_objects":true', '"individual_objects":false', CU, 'sam21_session', 'every_detected_box'),
+    ('selections-share-a-sink-name', SAM21, 'NEXT_SELECTION.fetch_add(1, Ordering::Relaxed)', '0', CU, 'sam21_session', 'its_own_sink_name'),
+]
+
+GROUPS = {'s21': S21, 'ca': CA, 'lg': LG, 'ps': PS, 'ct': CT, 'u2': U2, 'nr': NR, 'u1': U1, 'u3': U3, 'u4': U4, 'p4': P4, 'p10': P10, 'v1': V1, 'v2': V2, 'v3': V3, 'sd': SD, 'vx': VX, 'lc': LC, 'lr': LR, 'wf': WF}
 # Mutants whose effect is also refused by a second, independent check on this machine. They are
 # recorded as equivalent here, with the reason, and are never counted as caught.
 EQUIVALENT = {
