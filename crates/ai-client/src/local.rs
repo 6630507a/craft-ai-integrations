@@ -40,21 +40,65 @@ pub struct LocalEnabled {
 }
 
 impl ToolDesk {
-    /// Registers the local model of `feature`, served by the ComfyUI at `endpoint` (a loopback
-    /// address), and binds the tool to it if nothing is chosen yet.
+    /// Registers the first local model of `feature` that can run, served by the ComfyUI at
+    /// `endpoint` (a loopback address), and binds the tool to it if nothing is chosen yet.
     pub fn enable_local(&self, feature: &Feature, endpoint: &str) -> Result<LocalEnabled, AiError> {
-        let recipe = feature.local.as_ref().filter(|r| r.usable).ok_or_else(|| {
+        let recipe = feature.locals.iter().find(|r| r.usable).ok_or_else(|| {
             AiError::unsupported(format!(
                 "{} has no local model that can run yet",
                 feature.title
             ))
         })?;
+        self.enable_recipe(feature, recipe, endpoint)
+    }
+
+    /// Registers one named local model of `feature` (`workflow` is its recipe's workflow id, such
+    /// as `sam3-segment`), served by the ComfyUI at `endpoint`, and binds the tool to it if
+    /// nothing is chosen yet. Refused, with nothing written, when the feature has no recipe of
+    /// that name that can run.
+    pub fn enable_local_recipe(
+        &self,
+        feature: &Feature,
+        workflow: &str,
+        endpoint: &str,
+    ) -> Result<LocalEnabled, AiError> {
+        let recipe = feature
+            .locals
+            .iter()
+            .find(|r| r.workflow == workflow && r.usable)
+            .ok_or_else(|| {
+                AiError::unsupported(format!(
+                    "{} has no local model called {workflow} that can run yet",
+                    feature.title
+                ))
+            })?;
+        self.enable_recipe(feature, recipe, endpoint)
+    }
+
+    /// One recipe becomes one connection offering its model. The first recipe keeps the plain
+    /// `local-<feature>` connection id, so a choice saved by an earlier build still points at it.
+    /// Every other recipe gets `local-<feature>-recipe-<workflow>`: built-in runtimes already use
+    /// `local-<feature>-<provider>`, and a recipe named like one (`candle`) must never replace it.
+    fn enable_recipe(
+        &self,
+        feature: &Feature,
+        recipe: &craft_ai_features::LocalRecipe,
+        endpoint: &str,
+    ) -> Result<LocalEnabled, AiError> {
         let role = feature
             .role()
             .ok_or_else(|| AiError::invalid("the tool id is not valid"))?;
         let address = local_address(endpoint)?;
-        let id = ConnectionId::new(format!("local-{}", feature.id))
-            .map_err(|e| AiError::invalid(e.to_string()))?;
+        let primary = feature
+            .locals
+            .first()
+            .is_some_and(|first| first.workflow == recipe.workflow);
+        let id = if primary {
+            ConnectionId::new(format!("local-{}", feature.id))
+        } else {
+            ConnectionId::new(format!("local-{}-recipe-{}", feature.id, recipe.workflow))
+        }
+        .map_err(|e| AiError::invalid(e.to_string()))?;
         let model_id =
             ModelId::new(&recipe.workflow).map_err(|e| AiError::invalid(e.to_string()))?;
         let model = tool_model(feature, model_id.clone(), &recipe.label);
@@ -97,16 +141,18 @@ impl ToolDesk {
 }
 
 impl ToolDesk {
-    /// Registers the first built-in runtime of `feature` (its recipe's [`NativeRoute`](craft_ai_features::NativeRoute))
-    /// reading the weights at `weights`, and binds the tool to it if nothing is chosen yet.
+    /// Registers the first built-in runtime ([`NativeRoute`](craft_ai_features::NativeRoute)) of
+    /// `feature`'s first recipe that can run, reading the weights at `weights`, and binds the tool
+    /// to it if nothing is chosen yet.
     pub fn enable_native(
         &self,
         feature: &Feature,
         weights: &Path,
     ) -> Result<LocalEnabled, AiError> {
         let first = feature
-            .local
-            .as_ref()
+            .locals
+            .iter()
+            .find(|r| r.usable)
             .and_then(|r| r.native.first())
             .map(|n| n.provider.clone())
             .ok_or_else(|| {
@@ -115,8 +161,9 @@ impl ToolDesk {
         self.enable_native_with(feature, &first, weights)
     }
 
-    /// Registers the built-in runtime named `provider` (`candle`, `burn`) from the feature's recipe.
-    /// Only a runtime the recipe lists is accepted, matched exactly. Every runtime reads the same
+    /// Registers the built-in runtime named `provider` (`candle`, `burn`) from the feature's first
+    /// recipe that can run, the same recipe [`ToolDesk::enable_local`] and engine advice use. Only
+    /// a runtime that recipe lists is accepted, matched exactly. Every runtime reads the same
     /// weights file and gets its own connection; the tool is bound only if nothing is chosen yet.
     pub fn enable_native_with(
         &self,
@@ -125,9 +172,9 @@ impl ToolDesk {
         weights: &Path,
     ) -> Result<LocalEnabled, AiError> {
         let native = feature
-            .local
-            .as_ref()
-            .filter(|r| r.usable)
+            .locals
+            .iter()
+            .find(|r| r.usable)
             .and_then(|r| r.native.iter().find(|n| n.provider == provider))
             .ok_or_else(|| {
                 AiError::unsupported(format!(
