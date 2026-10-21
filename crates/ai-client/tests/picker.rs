@@ -217,6 +217,7 @@ fn each_model_says_what_is_known_about_it_in_one_line() {
     assert!(!local.contains('\n') && !hosted.contains('\n'));
 }
 
+/// A provider with no key, or switched off, stays in the list greyed with the way to fix it.
 #[test]
 fn a_provider_with_no_key_or_switched_off_is_greyed_and_can_be_fixed_not_hidden() {
     let mut off = connection("off", "segment-co", false, vec![segmenter("a", "Alpha")]);
@@ -230,34 +231,23 @@ fn a_provider_with_no_key_or_switched_off_is_greyed_and_can_be_fixed_not_hidden(
         vec![],
     );
     let view = w.picker(&select_subject());
-    assert_eq!(
-        titles(&view)[..3],
-        [
-            ("Label ok".to_owned(), GroupState::Ready),
-            ("Label nokey".to_owned(), GroupState::NeedsKey),
-            ("Label off".to_owned(), GroupState::SwitchedOff),
-        ]
-    );
+    let state_of = |name: &str| view.groups.iter().find(|g| g.title == name).unwrap().state;
+    assert_eq!(state_of("Label ok"), GroupState::Ready);
+    assert_eq!(state_of("Label nokey"), GroupState::NeedsKey);
+    assert_eq!(state_of("Label off"), GroupState::SwitchedOff);
     let fix = |id: &str| {
         Some(SetupLink::Fix {
             connection: ConnectionId::new(id).unwrap(),
         })
     };
-    assert_eq!(view.groups[0].setup, None);
-    assert_eq!(view.groups[1].setup, fix("nokey"));
-    assert_eq!(view.groups[2].setup, fix("off"));
+    let group = |name: &str| view.groups.iter().find(|g| g.title == name).unwrap();
+    assert_eq!(group("Label ok").setup, None);
+    assert_eq!(group("Label nokey").setup, fix("nokey"));
+    assert_eq!(group("Label off").setup, fix("off"));
     // Their models are still listed, so a person can see what they would get.
-    assert_eq!(view.groups[1].models[0].label, "Beta");
-    assert!(
-        view.groups[1].note.contains("key"),
-        "{}",
-        view.groups[1].note
-    );
-    assert!(
-        view.groups[2].note.contains("off"),
-        "{}",
-        view.groups[2].note
-    );
+    assert_eq!(group("Label nokey").models[0].label, "Beta");
+    assert!(group("Label nokey").note.contains("key"));
+    assert!(group("Label off").note.contains("off"));
 }
 
 /// A hosted provider with no connection shows as one not-set-up group with a set-up link; once a
@@ -297,12 +287,20 @@ fn a_provider_that_is_not_set_up_is_shown_with_a_set_up_link_until_it_is() {
 fn the_local_model_is_greyed_until_a_local_connection_offers_one_for_the_tool() {
     let w = World::new(vec![], vec![]);
     let view = w.picker(&select_subject());
-    // Each local model is its own thing to set up, in catalogue order.
+    // Each ComfyUI model is its own thing to set up, in catalogue order.
+    let comfy: Vec<_> = view
+        .groups
+        .iter()
+        .filter(|g| !g.title.contains("built in"))
+        .collect();
     assert_eq!(
-        titles(&view),
+        comfy
+            .iter()
+            .map(|g| (g.title.as_str(), g.state))
+            .collect::<Vec<_>>(),
         [
-            ("SAM 3".to_owned(), GroupState::NotSetUp),
-            ("SAM 2.1".to_owned(), GroupState::NotSetUp)
+            ("SAM 3", GroupState::NotSetUp),
+            ("SAM 2.1", GroupState::NotSetUp)
         ]
     );
     assert!(
@@ -310,7 +308,22 @@ fn the_local_model_is_greyed_until_a_local_connection_offers_one_for_the_tool() 
             .iter()
             .all(|g| g.locality == Some(Locality::Local))
     );
-    let links: Vec<_> = view.groups.iter().map(|g| g.setup.clone()).collect();
+    // Without the Candle adapter this app lists the built-in engine but cannot set it up here.
+    let native = view
+        .groups
+        .iter()
+        .find(|g| g.title.contains("built in"))
+        .unwrap();
+    if cfg!(feature = "candle") {
+        assert_eq!(native.state, GroupState::NotSetUp);
+        assert!(native.setup.is_some());
+    } else {
+        assert_eq!(
+            (native.state, native.setup.clone()),
+            (GroupState::NeedsAdapter, None)
+        );
+    }
+    let links: Vec<_> = comfy.iter().map(|g| g.setup.clone()).collect();
     assert_eq!(
         links,
         [
@@ -333,7 +346,9 @@ fn the_local_model_is_greyed_until_a_local_connection_offers_one_for_the_tool() 
         vec![],
     );
     let view = w.picker(&select_subject());
-    assert_eq!(titles(&view), [("Label box".to_owned(), GroupState::Ready)]);
+    let group = view.groups.iter().find(|g| g.title == "Label box").unwrap();
+    assert_eq!(group.state, GroupState::Ready);
+    assert!(view.groups.iter().all(|g| g.title != "SAM 3"));
 }
 
 #[test]
@@ -366,6 +381,7 @@ fn setup_options_for_other_tools_or_that_cannot_run_yet_are_not_offered() {
     );
 }
 
+/// The model in use is marked, and a chosen model that stopped working reports the reason.
 #[test]
 fn the_model_in_use_is_marked_and_a_choice_that_stopped_working_says_why() {
     let role = select_subject();
@@ -382,7 +398,15 @@ fn the_model_in_use_is_marked_and_a_choice_that_stopped_working_says_why() {
     let view = w.picker(&role);
     let current = view.current.clone().unwrap();
     assert_eq!((current.label.as_str(), current.problem), ("SAM 3", None));
-    assert!(view.groups[0].models[0].selected);
+    let selected = |view: &craft_ai_client::PickerView, title: &str| {
+        view.groups
+            .iter()
+            .find(|g| g.title == title)
+            .unwrap()
+            .models[0]
+            .selected
+    };
+    assert!(selected(&view, "Label box"));
 
     // No key saved: still marked, with the reason.
     let w = World::new(
@@ -397,7 +421,7 @@ fn the_model_in_use_is_marked_and_a_choice_that_stopped_working_says_why() {
     let view = w.picker(&role);
     let problem = view.current.clone().unwrap().problem.unwrap();
     assert!(problem.contains("no key"), "{problem}");
-    assert!(view.groups[0].models[0].selected);
+    assert!(selected(&view, "Label cloud"));
 
     // The connection was removed: nothing to mark, the reason is still shown.
     let w = World::new(vec![], vec![bound(&role, "gone", "x")]);
@@ -458,11 +482,20 @@ fn an_apps_own_choice_is_the_one_marked_over_the_launcher_default() {
     assert_eq!(marked, [("SAM 3", false), ("Alt", true)]);
 }
 
+/// An uninstalled local model shows its download size; a hosted service shows none.
 #[test]
 fn an_uninstalled_local_model_carries_its_download_size_and_a_hosted_service_none() {
     let w = World::new(vec![], vec![]);
     let local = w.picker(&select_subject());
-    assert_eq!(local.groups[0].size_bytes, Some(3_449_860_632));
+    let comfy = local.groups.iter().find(|g| g.title == "SAM 3").unwrap();
+    assert_eq!(comfy.size_bytes, Some(3_449_860_632));
+    // The built-in engine downloads its own three files, not the ComfyUI checkpoint.
+    let native = local
+        .groups
+        .iter()
+        .find(|g| g.title.contains("built in"))
+        .unwrap();
+    assert_eq!(native.size_bytes, Some(3_441_325_459));
     let hosted = w.picker(&builtin_role("generative-fill"));
     assert_eq!(hosted.groups[0].size_bytes, None);
 

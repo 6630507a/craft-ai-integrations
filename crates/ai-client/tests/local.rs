@@ -205,8 +205,8 @@ fn only_a_local_address_and_only_a_runnable_local_recipe_are_accepted() {
     );
 }
 
-/// After SAM 3 is enabled the picker lists it as ready, not as something to install, and still
-/// offers SAM 2.1, which is not installed.
+/// After SAM 3 is enabled the picker lists it as ready, still offers SAM 2.1 to set up, and marks
+/// the built-in engine as not usable by this app.
 #[test]
 fn the_picker_then_lists_sam_3_as_ready_not_as_something_to_install() {
     let w = World::new();
@@ -215,17 +215,35 @@ fn the_picker_then_lists_sam_3_as_ready_not_as_something_to_install() {
         .unwrap();
     let options = craft_ai_features::setup_options(&craft_ai_features::builtin());
     let view = w.client("photocraft").picker(&role(), &options).unwrap();
-    // SAM 3 is ready; SAM 2.1 is not installed, so it keeps its way in.
-    assert_eq!(view.groups.len(), 2);
-    assert_eq!(view.groups[0].state, GroupState::Ready);
-    assert!(view.groups[0].models[0].selected);
-    assert_eq!(view.groups[1].state, GroupState::NotSetUp);
+    // SAM 3 is ready; SAM 2.1 is not installed, so it keeps its way in; the built-in engine is a
+    // separate option and this app has no adapter for it.
+    assert_eq!(view.groups.len(), 3);
+    let comfy = |state| {
+        view.groups
+            .iter()
+            .find(|g| g.state == state && !g.title.contains("built in"))
+            .unwrap()
+    };
+    assert!(comfy(GroupState::Ready).models[0].selected);
     assert_eq!(
-        view.groups[1].setup,
+        comfy(GroupState::NotSetUp).setup,
         Some(SetupLink::New {
             option: "local:select-subject:sam21-segment".into()
         })
     );
+    // With the Candle adapter built in the engine can be set up; without it, it is only listed.
+    let native = view
+        .groups
+        .iter()
+        .find(|g| g.title.contains("built in"))
+        .unwrap();
+    if cfg!(feature = "candle") {
+        assert_eq!(native.state, GroupState::NotSetUp);
+        assert!(native.setup.is_some());
+    } else {
+        assert_eq!(native.state, GroupState::NeedsAdapter);
+        assert_eq!(native.setup, None);
+    }
     assert!(view.current.unwrap().problem.is_none());
 }
 
