@@ -283,6 +283,7 @@ fn runtime_named_like_a_recipe() -> Feature {
         provider: "recipe-other-segment".into(),
         model: "sam3".into(),
         label: "Custom".into(),
+        models: Vec::new(),
     });
     f
 }
