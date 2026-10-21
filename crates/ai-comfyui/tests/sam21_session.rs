@@ -25,17 +25,21 @@ fn installed_sam21_returns_a_real_nonempty_selection_mask() {
     let url = std::env::var("CRAFT_TEST_COMFYUI_URL").expect("local server address");
     let image =
         std::fs::read(std::env::var("CRAFT_TEST_SAM21_IMAGE").expect("test photo path")).unwrap();
-    let source = png::Decoder::new(image.as_slice()).read_info().unwrap();
+    let source = png::Decoder::new(std::io::Cursor::new(image.as_slice()))
+        .read_info()
+        .unwrap();
     let mut session = Sam21Session::new(&url).unwrap();
     session.verify_server().unwrap();
     session.prepare(&image).unwrap();
     let mask = session.ground("person").unwrap();
-    let mut decoder = png::Decoder::new(mask.as_slice()).read_info().unwrap();
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(mask.as_slice()))
+        .read_info()
+        .unwrap();
     assert_eq!(
         (decoder.info().width, decoder.info().height),
         (source.info().width, source.info().height)
     );
-    let mut pixels = vec![0; decoder.output_buffer_size()];
+    let mut pixels = vec![0; decoder.output_buffer_size().unwrap()];
     let frame = decoder.next_frame(&mut pixels).unwrap();
     assert!(pixels[..frame.buffer_size()].iter().any(|p| *p > 0));
     assert!(pixels[..frame.buffer_size()].contains(&0));
@@ -279,13 +283,13 @@ fn installed_sam21_selects_every_matching_subject() {
     let url = std::env::var("CRAFT_TEST_COMFYUI_URL").expect("local server address");
     let image =
         std::fs::read(std::env::var("CRAFT_TEST_SAM21_IMAGE").expect("test photo path")).unwrap();
-    let mut decoder = png::Decoder::new(image.as_slice());
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(image.as_slice()));
     decoder.set_transformations(png::Transformations::EXPAND);
     let mut reader = decoder.read_info().unwrap();
     let (w, h) = (reader.info().width as usize, reader.info().height as usize);
     let (color, _) = reader.output_color_type();
     let channels = color.samples();
-    let mut pixels = vec![0; reader.output_buffer_size()];
+    let mut pixels = vec![0; reader.output_buffer_size().unwrap()];
     reader.next_frame(&mut pixels).unwrap();
     let mut two = Vec::new();
     for row in pixels.chunks(w * channels).take(h) {
@@ -305,8 +309,10 @@ fn installed_sam21_selects_every_matching_subject() {
     session.verify_server().unwrap();
     session.prepare(&doubled).unwrap();
     let mask = session.ground("person").unwrap();
-    let mut decoder = png::Decoder::new(mask.as_slice()).read_info().unwrap();
-    let mut out = vec![0; decoder.output_buffer_size()];
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(mask.as_slice()))
+        .read_info()
+        .unwrap();
+    let mut out = vec![0; decoder.output_buffer_size().unwrap()];
     let frame = decoder.next_frame(&mut out).unwrap();
     let samples = frame.color_type.samples();
     let lit = |from: usize, to: usize| {

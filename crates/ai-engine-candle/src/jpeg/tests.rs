@@ -17,13 +17,12 @@ fn two_halves(width: u16, height: u16) -> Vec<u8> {
     pixels
 }
 
+/// A JPEG of the given pixels, with an EXIF orientation block when one is given.
 fn encode(pixels: &[u8], width: u16, height: u16, color: ColorType, exif: Option<u16>) -> Vec<u8> {
     let mut out = Vec::new();
     let mut encoder = Encoder::new(&mut out, 100);
     if let Some(orientation) = exif {
-        encoder
-            .add_app_segment(1, &exif_block(orientation))
-            .unwrap();
+        encoder.add_app_segment(1, exif_block(orientation)).unwrap();
     }
     encoder.encode(pixels, width, height, color).unwrap();
     out

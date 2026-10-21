@@ -16,7 +16,7 @@ craft-ai-engine = { path = "../ai-engine", package = "craft-ai-engine" }
 craft-ai-features = { path = "../ai-features", package = "craft-ai-features" }
 serde_json.workspace = true
 thiserror = "2"
-png = "0.17"
+png = "0.18"
 # JPEG only: the decoder (zune-jpeg) and the EXIF orientation come through this crate.
 # PNG stays on the png crate above so one decoder path is not swapped for another.
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
@@ -31,7 +31,7 @@ candle-nn = { version = "=0.9.2", default-features = false, features = ["metal"]
 [dev-dependencies]
 tempfile = "3"
 # Makes the JPEGs the tests decode.
-jpeg-encoder = "0.6"
+jpeg-encoder = "0.7"
 
 [lints]
 workspace = true

@@ -58,7 +58,7 @@ pub(crate) fn decode_png(data: &[u8]) -> Result<Rgb, AiError> {
     if width == 0 || height == 0 || width * height > MAX_PIXELS {
         return Err(too_large());
     }
-    let mut buffer = vec![0u8; reader.output_buffer_size()];
+    let mut buffer = vec![0u8; reader.output_buffer_size().ok_or_else(too_large)?];
     let frame = reader.next_frame(&mut buffer).map_err(bad)?;
     let (width, height) = (frame.width as usize, frame.height as usize);
     let pixels = buffer.get(..frame.buffer_size()).unwrap_or(&[]);

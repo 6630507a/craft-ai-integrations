@@ -83,6 +83,7 @@ fn bad_coordinates_do_not_touch_the_server() {
     assert_eq!(s.count(), 0);
 }
 
+/// Live and opt-in: SAM 3 selects the generated disc at its centre.
 #[test]
 #[ignore = "requires the person's running ComfyUI; never starts or modifies it"]
 fn existing_comfyui_segments_the_disc_at_its_centre() {
@@ -110,9 +111,9 @@ fn existing_comfyui_segments_the_disc_at_its_centre() {
         .unwrap()
         .segment(&image, 0.5, 0.5)
         .unwrap();
-    let decoder = png::Decoder::new(result.as_slice());
+    let decoder = png::Decoder::new(std::io::Cursor::new(result.as_slice()));
     let mut reader = decoder.read_info().unwrap();
-    let mut pixels = vec![0; reader.output_buffer_size()];
+    let mut pixels = vec![0; reader.output_buffer_size().unwrap()];
     let frame = reader.next_frame(&mut pixels).unwrap();
     assert_eq!((frame.width, frame.height), (256, 256));
     assert_eq!(frame.color_type, png::ColorType::Grayscale);

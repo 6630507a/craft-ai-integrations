@@ -23,9 +23,12 @@ pub fn sized_mask(width: u32, height: u32, pixels: &[u8]) -> Vec<u8> {
     bytes
 }
 
+/// The pixel bytes of a PNG.
 pub fn pixels(bytes: &[u8]) -> Vec<u8> {
-    let mut reader = png::Decoder::new(bytes).read_info().unwrap();
-    let mut buf = vec![0; reader.output_buffer_size()];
+    let mut reader = png::Decoder::new(std::io::Cursor::new(bytes))
+        .read_info()
+        .unwrap();
+    let mut buf = vec![0; reader.output_buffer_size().unwrap()];
     let frame = reader.next_frame(&mut buf).unwrap();
     assert_eq!((frame.width, frame.height), (2, 1));
     assert_eq!(frame.color_type, png::ColorType::Grayscale);

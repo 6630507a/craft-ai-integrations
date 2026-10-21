@@ -158,7 +158,7 @@ impl Sam3Session {
         {
             return Err(AiError::invalid("SAM 3 needs a PNG image under 16 MiB"));
         }
-        let reader = png::Decoder::new(image)
+        let reader = png::Decoder::new(std::io::Cursor::new(image))
             .read_info()
             .map_err(|_| AiError::invalid("SAM 3 needs a valid PNG image"))?;
         let (width, height) = (reader.info().width, reader.info().height);

@@ -85,7 +85,7 @@ fn a_sideways_jpeg_gets_an_upright_mask_over_the_object() {
         0x49, 0x49, 0x2A, 0, 8, 0, 0, 0, 1, 0, 0x12, 1, 3, 0, 1, 0, 0, 0,
     ]);
     exif.extend_from_slice(&[6, 0, 0, 0, 0, 0, 0, 0]);
-    encoder.add_app_segment(1, &exif).unwrap();
+    encoder.add_app_segment(1, exif).unwrap();
     encoder
         .encode(&rgb, w, h, jpeg_encoder::ColorType::Rgb)
         .unwrap();
@@ -108,7 +108,7 @@ fn a_sideways_jpeg_gets_an_upright_mask_over_the_object() {
     let mut reader = png::Decoder::new(std::io::Cursor::new(data))
         .read_info()
         .unwrap();
-    let mut buffer = vec![0; reader.output_buffer_size()];
+    let mut buffer = vec![0; reader.output_buffer_size().unwrap()];
     let frame = reader.next_frame(&mut buffer).unwrap();
     assert_eq!(
         (frame.width, frame.height),

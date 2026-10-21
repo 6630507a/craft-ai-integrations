@@ -191,6 +191,7 @@ fn remote_origin_is_never_a_local_sam3_session() {
     assert!(Sam3Session::new("https://example.com").is_err());
 }
 
+/// Live and opt-in: several points select both generated discs.
 #[test]
 #[ignore = "requires a running local ComfyUI; does not start or modify it"]
 fn installed_comfyui_multi_point_selects_both_discs() {
@@ -221,9 +222,11 @@ fn installed_comfyui_multi_point_selects_both_discs() {
         box_: None,
     };
     let selected = session.commit_prompt(&prompt).unwrap();
-    let mut reader = png::Decoder::new(selected.as_slice()).read_info().unwrap();
+    let mut reader = png::Decoder::new(std::io::Cursor::new(selected.as_slice()))
+        .read_info()
+        .unwrap();
     assert_eq!((reader.info().width, reader.info().height), (256, 128));
-    let mut pixels = vec![0; reader.output_buffer_size()];
+    let mut pixels = vec![0; reader.output_buffer_size().unwrap()];
     reader.next_frame(&mut pixels).unwrap();
     assert!(pixels[64 * 256 + 40] > 0, "big disc must be selected");
     assert!(
@@ -233,6 +236,7 @@ fn installed_comfyui_multi_point_selects_both_discs() {
     assert_eq!(pixels[10 * 256 + 10], 0, "background must stay unselected");
 }
 
+/// Live and opt-in: prewarm, preview and select work on the installed ComfyUI.
 #[test]
 #[ignore = "requires a running local ComfyUI; does not start or modify it"]
 fn installed_comfyui_prewarms_previews_and_selects_a_disc() {
@@ -262,8 +266,10 @@ fn installed_comfyui_prewarms_previews_and_selects_a_disc() {
     let preview = session.preview(128.0, 128.0).unwrap();
     assert!(preview.starts_with(&[0xff, 0xd8]));
     let selected = session.commit(128.0, 128.0).unwrap();
-    let mut reader = png::Decoder::new(selected.as_slice()).read_info().unwrap();
-    let mut pixels = vec![0; reader.output_buffer_size()];
+    let mut reader = png::Decoder::new(std::io::Cursor::new(selected.as_slice()))
+        .read_info()
+        .unwrap();
+    let mut pixels = vec![0; reader.output_buffer_size().unwrap()];
     let frame = reader.next_frame(&mut pixels).unwrap();
     assert_eq!((frame.width, frame.height), (256, 256));
     assert!(pixels.contains(&0));
