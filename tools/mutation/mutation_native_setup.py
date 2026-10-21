@@ -18,4 +18,7 @@ NS = [
     ('native-scan-lists-any-small-file', 'crates/ai-comfy-env/src/model_folder_scan.rs', '!(is_model_file(&name) || is_known)', '!(is_model_file(&name) || true)', 'craft-ai-comfy-env', 'lib', 'a_known_bundle_file'),
     ('native-scan-known-name-ignores-size', 'crates/ai-comfy-env/src/model_folder_scan.rs', 'k.size == meta.len() && k.filename.eq_ignore_ascii_case(&name)', 'k.filename.eq_ignore_ascii_case(&name)', 'craft-ai-comfy-env', 'lib', 'a_known_bundle_file'),
     ('native-known-bundle-file-counted-unrecognised', 'crates/ai-comfy-env/src/model_folder_scan.rs', '} else if basis.is_none() {', '} else {', 'craft-ai-comfy-env', 'lib', 'a_known_bundle_file'),
+    ('native-picker-hides-setup-when-the-file-is-gone', 'crates/ai-client/src/picker_groups.rs', '.is_some_and(|file| Path::new(file).is_file())', '.is_some()', 'craft-ai-client', 'picker_native', 'file_is_gone'),
+    ('native-picker-matches-any-connection-of-the-runtime', 'crates/ai-client/src/picker_groups.rs', '&& c.id.as_str() == native_connection_id(feature, provider)', '&& true', 'craft-ai-client', 'picker_native', 'another_model'),
+    ('native-picker-ignores-the-model-id', 'crates/ai-client/src/picker_groups.rs', '&& m.id.as_str() == current)', '&& true)', 'craft-ai-client', 'picker_native', 'older_model'),
 ]

@@ -86,6 +86,15 @@ impl NativeSetupPlan {
     pub fn available(&self) -> bool {
         self.available
     }
+    /// Whether `other` is a plan for what this one asks the person to approve: the same tool,
+    /// runtime, destination and availability. The bytes still needed and the directory where
+    /// complete files were found change as a download makes progress, so they do not count.
+    pub fn same_target(&self, other: &Self) -> bool {
+        self.feature == other.feature
+            && self.route == other.route
+            && self.destination == other.destination
+            && self.available == other.available
+    }
     /// On a worker, download into the exact destination shown in this plan. No binding is written.
     pub fn download(&self, request: NativeInstall<'_>) -> Result<CheckedNative, AiError> {
         if !self.available {

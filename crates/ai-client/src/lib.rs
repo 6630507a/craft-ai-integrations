@@ -55,6 +55,7 @@ mod picker_groups;
 mod picker_presets;
 mod popup;
 mod runner;
+mod setup_flow;
 mod tools;
 
 pub use client::{AiClient, Choice, Finished, Job, PickedChoice, Plan, RoleReady, RoleStatus};
@@ -79,4 +80,5 @@ pub use picker::{
 pub use picker_presets::pick_label;
 pub use popup::MissingModel;
 pub use runner::{TestRunner, TestTarget};
+pub use setup_flow::{SetupRequest, SetupSession, SetupTask, SetupTicket};
 pub use tools::{Accepted, SampleReport, Skipped, TestStart, ToolDesk, ToolView};

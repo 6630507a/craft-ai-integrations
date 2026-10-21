@@ -39,6 +39,12 @@ pub struct LocalEnabled {
     pub bound: bool,
 }
 
+/// The id of the connection [`ToolDesk::enable_native`] saves for the built-in runtime `provider`
+/// of `feature`, so the picker can tell which model a saved connection stands for.
+pub(crate) fn native_connection_id(feature: &str, provider: &str) -> String {
+    format!("local-{feature}-{provider}")
+}
+
 /// Whether `connection` is one a local recipe of `feature` registered through
 /// [`ToolDesk::enable_local`] or [`ToolDesk::enable_local_recipe`]: the ComfyUI connection
 /// `local-<feature>` or one named `local-<feature>-recipe-<workflow>`. Its model id is the
@@ -210,7 +216,7 @@ impl ToolDesk {
             .role()
             .ok_or_else(|| AiError::invalid("the tool id is not valid"))?;
         let file = weights_file(weights)?;
-        let id = ConnectionId::new(format!("local-{}-{}", feature.id, native.provider))
+        let id = ConnectionId::new(native_connection_id(&feature.id, &native.provider))
             .map_err(|e| AiError::invalid(e.to_string()))?;
         let model_id = ModelId::new(&native.model).map_err(|e| AiError::invalid(e.to_string()))?;
         let mut model = tool_model(feature, model_id.clone(), &native.label);
