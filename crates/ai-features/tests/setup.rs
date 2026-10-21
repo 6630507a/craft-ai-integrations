@@ -2,7 +2,8 @@
 //! in it is plain language.
 use craft_ai_features::{
     Feature, Gpu, GpuVendor, InstalledFile, Inventory, Os, SetupOffer, SetupRoute, StepKind,
-    SystemProfile, agreement, gigabytes, portable_for, setup_offer,
+    SystemProfile, agreement, agreement_for, gigabytes, portable_for, setup_offer,
+    setup_offer_native,
 };
 
 fn select_subject() -> Feature {
@@ -41,6 +42,32 @@ fn offer(profile: &SystemProfile, inventory: &Inventory, route: SetupRoute) -> O
 
 fn kinds(o: &SetupOffer) -> Vec<StepKind> {
     o.steps.iter().map(|s| s.kind).collect()
+}
+
+/// A native offer is for the runtime that was asked for: Burn names no files so it gets none, and
+/// Candle gets its three own files.
+#[test]
+fn a_native_offer_is_for_the_selected_provider_not_any_built_in_engine() {
+    let profile = pc(Os::Windows, vec![]);
+    let feature = select_subject();
+    assert!(setup_offer_native(&feature, "burn", &profile, &empty()).is_none());
+    let candle = setup_offer_native(&feature, "candle", &profile, &empty()).unwrap();
+    assert_eq!(kinds(&candle), [StepKind::Model; 3]);
+    assert_eq!(candle.download_bytes, 3_441_325_459);
+}
+
+/// An unusable recipe in front does not hide the usable one behind it from the Install offer.
+#[test]
+fn a_native_offer_skips_an_unusable_first_recipe() {
+    let profile = pc(Os::Windows, vec![]);
+    let mut feature = select_subject();
+    let real = feature.locals[0].clone();
+    let mut parked = real.clone();
+    parked.usable = false;
+    parked.native.clear();
+    feature.locals = vec![parked, real];
+    let candle = setup_offer_native(&feature, "candle", &profile, &empty()).unwrap();
+    assert_eq!(kinds(&candle), [StepKind::Model; 3]);
 }
 
 #[test]
@@ -148,16 +175,21 @@ fn other_systems_get_plain_steps_and_no_install_button() {
     }
 }
 
+/// The built-in route needs only the runtime's own three files: no ComfyUI, no node packs, and the
+/// one licence to accept, on any system.
 #[test]
 fn the_built_in_route_needs_only_the_model() {
     let p = pc(Os::Windows, vec![card(GpuVendor::Nvidia, "RTX 3090")]);
     let o = offer(&p, &empty(), SetupRoute::BuiltIn).unwrap();
-    assert_eq!(kinds(&o), [StepKind::Model]);
+    assert_eq!(kinds(&o), [StepKind::Model; 3]);
+    assert_eq!(o.download_bytes, 3_441_325_459);
+    assert_eq!(o.licences.len(), 1);
+    assert_eq!(o.licences[0].name, "Meta SAM License");
     assert!(o.portable.is_none() && o.manual_steps.is_empty());
     assert!(o.can_install());
     // Even on a system with no ComfyUI build at all.
     let o = offer(&pc(Os::Linux, vec![]), &empty(), SetupRoute::BuiltIn).unwrap();
-    assert_eq!(kinds(&o), [StepKind::Model]);
+    assert_eq!(kinds(&o), [StepKind::Model; 3]);
     assert!(o.can_install());
 }
 
@@ -335,6 +367,31 @@ fn the_jargon_check_itself_catches_jargon() {
         ["unpack", "7z", "archive", "pip"]
     );
     assert!(jargon_in("Install ComfyUI.").is_empty());
+}
+
+/// The built-in route installs no ComfyUI and saves into the person's chosen model folder, so its
+/// terms say that, not that everything stays in the app's own folder. Its words have their own
+/// version, and the ComfyUI route keeps the original terms.
+#[test]
+fn a_built_in_offer_agrees_to_its_own_words_not_the_comfyui_ones() {
+    let profile = pc(Os::Windows, vec![]);
+    let offer = setup_offer_native(&select_subject(), "candle", &profile, &empty()).unwrap();
+    let text = &offer.agreement.full_text;
+    assert!(
+        !text.contains("ComfyUI") && !text.contains("app's own folder"),
+        "{text}"
+    );
+    assert!(text.contains("model folder"), "{text}");
+    // The built-in flow's control is Download, so that is the click the terms name.
+    assert!(!text.contains("Install"), "{text}");
+    assert!(offer.agreement.summary.contains("Download"));
+    assert!(!offer.agreement.summary.contains("Install"));
+    assert_ne!(offer.agreement.version, agreement().version);
+    assert_eq!(
+        offer.agreement.full_text,
+        agreement_for(SetupRoute::BuiltIn).full_text
+    );
+    assert_eq!(agreement_for(SetupRoute::ComfyUi), agreement());
 }
 
 #[test]

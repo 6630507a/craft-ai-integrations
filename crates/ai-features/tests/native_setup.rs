@@ -1,0 +1,194 @@
+//! Built-in model setup must use the files its own runner loads, not the ComfyUI recipe.
+use craft_ai_features::{
+    InstalledFile, Inventory, Route, State, builtin, plan_native, setup_options,
+};
+
+/// With no ComfyUI and no files, the Candle plan lists its own three files, their total size and the
+/// one licence to accept, and asks for no node packs.
+#[test]
+fn candle_without_comfyui_plans_its_three_own_files() {
+    let feature = builtin()
+        .into_iter()
+        .find(|f| f.id == "select-subject")
+        .unwrap();
+    let plan = plan_native(&feature, "candle", &Inventory::default());
+    assert_eq!(plan.state, State::NeedsInstall);
+    let names: Vec<_> = plan
+        .missing_files
+        .iter()
+        .map(|f| f.filename.as_str())
+        .collect();
+    assert_eq!(names, ["model.safetensors", "vocab.json", "merges.txt"]);
+    assert_eq!(plan.download_bytes, 3_441_325_459);
+    assert_eq!(plan.licences.len(), 1);
+    assert_eq!(plan.licences[0].name, "Meta SAM License");
+    assert!(plan.missing_packs.is_empty());
+}
+
+/// When all of the runtime's own files are present the plan is Ready with nothing to download.
+#[test]
+fn native_files_already_present_are_ready_without_comfyui() {
+    let feature = builtin()
+        .into_iter()
+        .find(|f| f.id == "select-subject")
+        .unwrap();
+    let candle = &feature.locals[0].native[0];
+    let inventory = Inventory {
+        files: candle
+            .models
+            .iter()
+            .map(|m| InstalledFile {
+                folder: m.folder.clone(),
+                filename: m.filename.clone(),
+                size_bytes: m.size_bytes,
+            })
+            .collect(),
+        ..Inventory::default()
+    };
+    let plan = plan_native(&feature, "candle", &inventory);
+    assert_eq!(plan.state, State::Ready);
+    assert_eq!(plan.download_bytes, 0);
+    assert!(plan.licences.is_empty());
+}
+
+/// The runtime's missing bytes are checked against free disk space, and too little blocks the plan.
+#[test]
+fn missing_native_files_count_against_free_space() {
+    let feature = builtin()
+        .into_iter()
+        .find(|f| f.id == "select-subject")
+        .unwrap();
+    let inventory = Inventory {
+        free_disk_bytes: Some(100),
+        ..Inventory::default()
+    };
+    let plan = plan_native(&feature, "candle", &inventory);
+    assert_eq!(plan.state, State::Blocked);
+    assert_eq!(plan.blockers.len(), 1);
+}
+
+/// A runtime with no files of its own (Burn today) or an unknown engine gets no plan and no download.
+#[test]
+fn unfinished_or_unknown_engines_offer_no_download() {
+    let feature = builtin()
+        .into_iter()
+        .find(|f| f.id == "select-subject")
+        .unwrap();
+    for engine in ["burn", "not-an-engine"] {
+        let plan = plan_native(&feature, engine, &Inventory::default());
+        assert_eq!(plan.state, State::NoLocalRoute);
+        assert!(plan.missing_files.is_empty());
+    }
+}
+
+/// The setup options list Candle with its own size, and leave out a runtime that names no files.
+#[test]
+fn setup_options_offer_candle_with_its_own_size_but_not_unbuilt_burn() {
+    let options = setup_options(&builtin());
+    let candle = options
+        .iter()
+        .find(|o| o.id == "native:select-subject:candle")
+        .unwrap();
+    assert!(
+        matches!(&candle.route, Route::Native { feature, provider, model }
+        if feature == "select-subject" && provider == "candle" && model == "sam3")
+    );
+    assert_eq!(candle.size_bytes, Some(3_441_325_459));
+    assert!(candle.usable);
+    assert!(options.iter().all(|o| o.id != "native:select-subject:burn"));
+}
+
+/// A recipe apps cannot run yet offers no native plan, even though its runtime names files.
+#[test]
+fn a_recipe_apps_cannot_run_yet_offers_no_native_download() {
+    let mut feature = builtin()
+        .into_iter()
+        .find(|f| f.id == "select-subject")
+        .unwrap();
+    feature.locals[0].usable = false;
+    let plan = plan_native(&feature, "candle", &Inventory::default());
+    assert_eq!(plan.state, State::NoLocalRoute);
+    assert!(plan.missing_files.is_empty());
+}
+
+/// `select-subject` with a recipe that cannot run listed before the real one, and a later copy of
+/// the real one under another workflow id. Only the first usable recipe may serve a built-in
+/// runtime, the same one `enable_native` and engine advice use.
+fn unusable_first() -> craft_ai_features::Feature {
+    let mut feature = builtin()
+        .into_iter()
+        .find(|f| f.id == "select-subject")
+        .unwrap();
+    let real = feature.locals[0].clone();
+    let mut parked = real.clone();
+    parked.usable = false;
+    parked.workflow = "parked".to_owned();
+    let mut later = real.clone();
+    later.workflow = "later".to_owned();
+    feature.locals = vec![parked, real, later];
+    feature
+}
+
+/// An unusable recipe in front does not hide the usable one behind it.
+#[test]
+fn plan_native_uses_the_first_usable_recipe_not_the_first_recipe() {
+    let feature = unusable_first();
+    let plan = plan_native(&feature, "candle", &Inventory::default());
+    assert_eq!(plan.state, State::NeedsInstall);
+    assert_eq!(plan.recipe, feature.locals[1].workflow);
+    assert_eq!(plan.download_bytes, 3_441_325_459);
+}
+
+/// A runtime gets one option however many recipes name it, and the option is the one the planner
+/// and the installer act on, so its id is unique and following it cannot fail.
+#[test]
+fn a_native_runtime_gets_one_option_from_the_first_usable_recipe() {
+    let feature = unusable_first();
+    let options = setup_options(std::slice::from_ref(&feature));
+    let native: Vec<_> = options
+        .iter()
+        .filter(|o| matches!(o.route, Route::Native { .. }))
+        .collect();
+    assert_eq!(native.len(), 1);
+    assert_eq!(native[0].id, "native:select-subject:candle");
+    assert!(native[0].usable);
+    assert_eq!(native[0].size_bytes, Some(3_441_325_459));
+}
+
+/// With no usable recipe at all, no native option is offered.
+#[test]
+fn no_native_option_without_a_usable_recipe() {
+    let mut feature = unusable_first();
+    feature.locals.iter_mut().for_each(|r| r.usable = false);
+    let options = setup_options(std::slice::from_ref(&feature));
+    assert!(
+        options
+            .iter()
+            .all(|o| !matches!(o.route, Route::Native { .. }))
+    );
+}
+
+/// Every local model comes before any built-in runtime, whichever tool names each, and the
+/// runtimes come before hosted services.
+#[test]
+fn native_options_follow_every_local_option_of_every_feature() {
+    let first = builtin()
+        .into_iter()
+        .find(|f| f.id == "select-subject")
+        .unwrap();
+    let mut second = first.clone();
+    second.id = "another-tool".to_owned();
+    second.locals.iter_mut().for_each(|r| r.native.clear());
+    let options = setup_options(&[first, second]);
+    let kind = |o: &craft_ai_features::SetupOption| match o.route {
+        Route::Local { .. } => 0,
+        Route::Native { .. } => 1,
+        Route::Service { .. } => 2,
+    };
+    let kinds: Vec<_> = options.iter().map(kind).collect();
+    assert!(kinds.contains(&1), "a native option is offered");
+    assert!(
+        kinds.is_sorted(),
+        "locals, then runtimes, then services: {kinds:?}"
+    );
+}

@@ -57,6 +57,13 @@ impl Feature {
         })
     }
 
+    /// The recipe every built-in runtime path acts on: the first one apps can run. Planning,
+    /// setup options, the Install offer, file setup, registration and engine advice all use it, so
+    /// an option the picker shows is never one that setup then refuses.
+    pub fn first_usable_recipe(&self) -> Option<&LocalRecipe> {
+        self.locals.iter().find(|r| r.usable)
+    }
+
     /// Apps where the tool exists today.
     pub fn shipped_in(&self) -> impl Iterator<Item = &AppUse> {
         self.uses.iter().filter(|u| u.status == AppStatus::Shipped)

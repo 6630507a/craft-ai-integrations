@@ -121,6 +121,9 @@ pub(crate) fn unset_groups(
                 }
                 (None, format!("Not connected. {}", option.note))
             }
+            // The picker learns to show a built-in runtime in the next change. Until then the
+            // option is not listed, which is what it did before the route existed.
+            Route::Native { .. } => continue,
             Route::Local { feature, recipe } => {
                 // A connection a recipe registered stands for that recipe only; any other local
                 // connection still counts for every model, as before.

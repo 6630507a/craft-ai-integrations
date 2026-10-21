@@ -143,17 +143,39 @@ fn plan_recipe(feature: &Feature, recipe: &LocalRecipe, inventory: &Inventory) -
     out
 }
 
+/// Compares the files of the built-in runtime `provider` for `feature` with `inventory`. Unlike
+/// [`plan`], it needs neither ComfyUI nor its node packs: the runtime reads its own files, which
+/// are a different layout from the ComfyUI checkpoint. The route comes from the first usable recipe
+/// ([`Feature::first_usable_recipe`]). A feature with no usable recipe, or no
+/// route with files of its own for `provider`, gets [`State::NoLocalRoute`].
+pub fn plan_native(feature: &Feature, provider: &str, inventory: &Inventory) -> Plan {
+    let recipe = feature.first_usable_recipe();
+    let mut out = empty(
+        feature,
+        recipe.map(|r| r.workflow.clone()).unwrap_or_default(),
+    );
+    let Some(route) = recipe.and_then(|r| {
+        r.native
+            .iter()
+            .find(|n| n.provider == provider && !n.models.is_empty())
+    }) else {
+        return out;
+    };
+    fill_files(&mut out, &route.models, inventory);
+    check_disk(&mut out, inventory);
+    out.state = if !out.blockers.is_empty() {
+        State::Blocked
+    } else if out.missing_files.is_empty() {
+        State::Ready
+    } else {
+        State::NeedsInstall
+    };
+    out
+}
+
 /// Adds what `recipe` is missing on `inventory` to `out`, and anything that blocks it.
 fn fill(out: &mut Plan, recipe: &LocalRecipe, inventory: &Inventory) {
-    for model in &recipe.models {
-        if inventory.find(model).is_none() {
-            out.download_bytes = out.download_bytes.saturating_add(model.size_bytes);
-            if model.licence.accept_required && !out.licences.contains(&model.licence) {
-                out.licences.push(model.licence.clone());
-            }
-            out.missing_files.push(model.clone());
-        }
-    }
+    fill_files(out, &recipe.models, inventory);
     out.missing_packs = recipe
         .packs
         .iter()
@@ -168,6 +190,25 @@ fn fill(out: &mut Plan, recipe: &LocalRecipe, inventory: &Inventory) {
             have_mb: have,
         });
     }
+    check_disk(out, inventory);
+}
+
+/// Adds every file of `models` that `inventory` lacks to `out`, with its bytes and any licence
+/// the person must accept.
+fn fill_files(out: &mut Plan, models: &[ModelFile], inventory: &Inventory) {
+    for model in models {
+        if inventory.find(model).is_none() {
+            out.download_bytes = out.download_bytes.saturating_add(model.size_bytes);
+            if model.licence.accept_required && !out.licences.contains(&model.licence) {
+                out.licences.push(model.licence.clone());
+            }
+            out.missing_files.push(model.clone());
+        }
+    }
+}
+
+/// Blocks `out` when the download is larger than the free disk space `inventory` reports.
+fn check_disk(out: &mut Plan, inventory: &Inventory) {
     if let Some(free) = inventory.free_disk_bytes
         && out.download_bytes > free
     {
