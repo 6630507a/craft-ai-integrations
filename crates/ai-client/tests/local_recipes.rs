@@ -2,9 +2,9 @@
 
 use std::sync::Arc;
 
-use craft_ai_client::{AiClient, ToolDesk};
+use craft_ai_client::{AiClient, SetupLink, ToolDesk};
 use craft_ai_core::{AppId, StoreFile};
-use craft_ai_features::{Feature, Gpu, GpuVendor, Os, SystemProfile};
+use craft_ai_features::{Feature, Gpu, GpuVendor, NativeRoute, Os, SystemProfile, setup_options};
 use craft_ai_native::secrets::MemoryStore;
 use craft_ai_native::shared::SharedStore;
 
@@ -149,6 +149,8 @@ fn only_the_second_runs() -> Feature {
     f
 }
 
+/// A recipe named like a built-in runtime (`candle`) gets its own connection id, so enabling it
+/// leaves the runtime's connection and its binding alone.
 #[test]
 fn a_recipe_named_like_a_built_in_runtime_never_takes_its_connection() {
     let w = World::new();
@@ -173,6 +175,7 @@ fn a_recipe_named_like_a_built_in_runtime_never_takes_its_connection() {
     );
 }
 
+/// Engine advice comes from the first recipe that can run, not from the first recipe listed.
 #[test]
 fn engine_advice_follows_the_first_recipe_that_can_run() {
     let w = World::new();
@@ -197,6 +200,8 @@ fn engine_advice_follows_the_first_recipe_that_can_run() {
     );
 }
 
+/// With the first recipe unable to run, the built-in runtime comes from the second recipe, and a
+/// runtime only the first one lists is refused with nothing written.
 #[test]
 fn a_built_in_runtime_comes_from_the_first_recipe_that_can_run() {
     let w = World::new();
@@ -210,4 +215,133 @@ fn a_built_in_runtime_comes_from_the_first_recipe_that_can_run() {
             .is_err()
     );
     assert_eq!(w.shared.load().unwrap().connections.len(), 1);
+}
+
+/// The setup links the picker offers for `f`, as option ids, in catalogue order.
+fn setup_links(w: &World, f: &Feature) -> Vec<String> {
+    let client = AiClient::new(
+        AppId::new("launcher").unwrap(),
+        w.shared.clone(),
+        Arc::new(MemoryStore::new()),
+    );
+    let options = setup_options(std::slice::from_ref(f));
+    let view = client.picker(&f.role().unwrap(), &options).unwrap();
+    view.groups
+        .iter()
+        .filter_map(|g| match &g.setup {
+            Some(SetupLink::New { option }) => Some(option.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Enabling one recipe removes only its own setup link from the picker; the other model, not
+/// installed yet, keeps its link until it is enabled too.
+#[test]
+fn enabling_one_model_keeps_the_setup_link_of_the_other() {
+    let w = World::new();
+    let f = two_models();
+    assert_eq!(
+        setup_links(&w, &f),
+        [
+            "local:select-subject:sam3-segment",
+            "local:select-subject:other-segment"
+        ]
+    );
+    w.desk()
+        .enable_local_recipe(&f, "sam3-segment", URL)
+        .unwrap();
+    assert_eq!(
+        setup_links(&w, &f),
+        ["local:select-subject:other-segment"],
+        "the model that is not installed keeps its way in"
+    );
+    w.desk()
+        .enable_local_recipe(&f, "other-segment", URL)
+        .unwrap();
+    assert!(
+        setup_links(&w, &f).is_empty(),
+        "both installed, nothing to set up"
+    );
+}
+
+/// Enabling only the second recipe leaves the first recipe's setup link in the picker.
+#[test]
+fn enabling_the_second_model_alone_leaves_the_first_one_to_set_up() {
+    let w = World::new();
+    let f = two_models();
+    w.desk()
+        .enable_local_recipe(&f, "other-segment", URL)
+        .unwrap();
+    assert_eq!(setup_links(&w, &f), ["local:select-subject:sam3-segment"]);
+}
+
+/// The first recipe lists a custom runtime whose name is the second recipe's connection suffix.
+fn runtime_named_like_a_recipe() -> Feature {
+    let mut f = two_models();
+    f.locals[0].native.push(NativeRoute {
+        provider: "recipe-other-segment".into(),
+        model: "sam3".into(),
+        label: "Custom".into(),
+    });
+    f
+}
+
+/// Enabling a recipe whose connection id a custom runtime already holds is refused, and the
+/// store (connection and binding) is exactly as it was.
+#[test]
+fn a_recipe_never_replaces_a_custom_runtime_that_has_its_connection_id() {
+    let w = World::new();
+    let desk = w.desk();
+    let f = runtime_named_like_a_recipe();
+    let native = desk
+        .enable_native_with(&f, "recipe-other-segment", &w.weights())
+        .unwrap();
+    let before = w.shared.load().unwrap();
+    let err = desk
+        .enable_local_recipe(&f, "other-segment", URL)
+        .unwrap_err();
+    assert!(
+        err.message.contains(native.connection.as_str()),
+        "{}",
+        err.message
+    );
+    let after = w.shared.load().unwrap();
+    assert_eq!(after.connections, before.connections);
+    assert_eq!(after.defaults, before.defaults);
+    assert_eq!(after.connections[0].provider, "recipe-other-segment");
+}
+
+/// The same clash in the other order: a custom runtime cannot take over a recipe's connection.
+#[test]
+fn a_custom_runtime_never_replaces_a_recipe_that_has_its_connection_id() {
+    let w = World::new();
+    let desk = w.desk();
+    let f = runtime_named_like_a_recipe();
+    desk.enable_local_recipe(&f, "other-segment", URL).unwrap();
+    let before = w.shared.load().unwrap();
+    assert!(
+        desk.enable_native_with(&f, "recipe-other-segment", &w.weights())
+            .is_err()
+    );
+    let after = w.shared.load().unwrap();
+    assert_eq!(after.connections, before.connections);
+    assert_eq!(after.connections[0].provider, "comfyui");
+}
+
+/// Enabling a recipe twice is not a clash: the one connection is updated with the new address.
+#[test]
+fn enabling_the_same_recipe_again_still_updates_its_connection() {
+    let w = World::new();
+    let desk = w.desk();
+    let f = two_models();
+    desk.enable_local_recipe(&f, "other-segment", URL).unwrap();
+    desk.enable_local_recipe(&f, "other-segment", "http://127.0.0.1:9000")
+        .unwrap();
+    let store = w.shared.load().unwrap();
+    assert_eq!(store.connections.len(), 1);
+    assert_eq!(
+        store.connections[0].endpoint.as_deref(),
+        Some("http://127.0.0.1:9000")
+    );
 }

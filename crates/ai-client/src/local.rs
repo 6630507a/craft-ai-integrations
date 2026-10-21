@@ -39,6 +39,16 @@ pub struct LocalEnabled {
     pub bound: bool,
 }
 
+/// Whether `connection` is one a local recipe of `feature` registered through
+/// [`ToolDesk::enable_local`] or [`ToolDesk::enable_local_recipe`]: the ComfyUI connection
+/// `local-<feature>` or one named `local-<feature>-recipe-<workflow>`. Its model id is the
+/// recipe's workflow, so the picker can tell which recipe it stands for.
+pub(crate) fn is_recipe_connection(connection: &Connection, feature: &str) -> bool {
+    let id = connection.id.as_str();
+    connection.provider == "comfyui"
+        && (id == format!("local-{feature}") || id.starts_with(&format!("local-{feature}-recipe-")))
+}
+
 impl ToolDesk {
     /// Registers the first local model of `feature` that can run, served by the ComfyUI at
     /// `endpoint` (a loopback address), and binds the tool to it if nothing is chosen yet.
@@ -107,8 +117,10 @@ impl ToolDesk {
         self.register(connection, role.id, model_id)
     }
 
-    /// Saves `connection` (replacing one with the same id) and binds `role` to it unless a choice
-    /// is already made. A choice already made, even one that no longer works, is never replaced.
+    /// Saves `connection` (replacing one with the same id and the same adapter) and binds `role`
+    /// to it unless a choice is already made. A choice already made, even one that no longer
+    /// works, is never replaced. A connection of another adapter under the same id is refused and
+    /// left untouched, because its binding would then point at a different route.
     fn register(
         &self,
         connection: Connection,
@@ -122,8 +134,14 @@ impl ToolDesk {
             model: model.clone(),
         };
         let mut bound = false;
-        self.shared.update(|store| {
+        let clash = self.shared.update(|store| {
             match store.connections.iter_mut().find(|c| c.id == id) {
+                // The same id with another adapter is another route that happens to share the
+                // name (a custom runtime called `recipe-x` against a recipe called `x`).
+                // Replacing it would swap the route under a binding that still names its model.
+                Some(existing) if existing.provider != connection.provider => {
+                    return Some(existing.provider.clone());
+                }
                 Some(existing) => *existing = connection,
                 None => store.connections.push(connection),
             }
@@ -131,7 +149,13 @@ impl ToolDesk {
                 store.defaults.push(binding);
                 bound = true;
             }
+            None
         })?;
+        if let Some(provider) = clash {
+            return Err(AiError::invalid(format!(
+                "the connection {id} already belongs to a {provider} route and was left as it is"
+            )));
+        }
         Ok(LocalEnabled {
             connection: id,
             model,

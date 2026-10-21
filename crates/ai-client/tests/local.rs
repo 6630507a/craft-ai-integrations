@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use craft_ai_client::{AiClient, GroupState, RoleStatus, ToolDesk};
+use craft_ai_client::{AiClient, GroupState, RoleStatus, SetupLink, ToolDesk};
 use craft_ai_core::{
     AppId, Binding, CapabilityId, CapabilitySpec, Connection, ConnectionId, InputRole, Locality,
     ModelId, ModelInfo, Role, StoreFile,
@@ -205,6 +205,8 @@ fn only_a_local_address_and_only_a_runnable_local_recipe_are_accepted() {
     );
 }
 
+/// After SAM 3 is enabled the picker lists it as ready, not as something to install, and still
+/// offers SAM 2.1, which is not installed.
 #[test]
 fn the_picker_then_lists_sam_3_as_ready_not_as_something_to_install() {
     let w = World::new();
@@ -213,9 +215,17 @@ fn the_picker_then_lists_sam_3_as_ready_not_as_something_to_install() {
         .unwrap();
     let options = craft_ai_features::setup_options(&craft_ai_features::builtin());
     let view = w.client("photocraft").picker(&role(), &options).unwrap();
-    assert_eq!(view.groups.len(), 1);
+    // SAM 3 is ready; SAM 2.1 is not installed, so it keeps its way in.
+    assert_eq!(view.groups.len(), 2);
     assert_eq!(view.groups[0].state, GroupState::Ready);
     assert!(view.groups[0].models[0].selected);
+    assert_eq!(view.groups[1].state, GroupState::NotSetUp);
+    assert_eq!(
+        view.groups[1].setup,
+        Some(SetupLink::New {
+            option: "local:select-subject:sam21-segment".into()
+        })
+    );
     assert!(view.current.unwrap().problem.is_none());
 }
 
